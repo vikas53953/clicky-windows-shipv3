@@ -1,0 +1,48 @@
+{
+  "name": "clicky-windows-shipv3",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/clicky-windows",
+    "worker"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w apps/clicky-windows",
+    "build": "npm run build -w apps/clicky-windows && npm run build -w worker",
+    "typecheck": "npm run typecheck -w apps/clicky-windows && npm run typecheck -w worker",
+    "lint": "npm run lint -w apps/clicky-windows && npm run lint -w worker",
+    "test": "npm run test -w apps/clicky-windows && npm run test -w worker",
+    "smoke:phase1": "node scripts/smoke-phase1.mjs",
+    "smoke:phase2": "node scripts/smoke-phase2.mjs",
+    "smoke:phase2:native": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-phase2-native.ps1",
+    "smoke:secrets": "node scripts/smoke-secret-scan.mjs",
+    "smoke:shortcut": "node scripts/smoke-shortcut.mjs",
+    "smoke:style-controls": "node scripts/smoke-style-controls.mjs",
+    "smoke:voice-behavior": "node scripts/smoke-voice-behavior.mjs",
+    "smoke:voice-fallback": "node scripts/smoke-voice-fallback.mjs",
+    "smoke:voice-health": "node scripts/smoke-voice-health.mjs",
+    "smoke:internet-tools": "node scripts/smoke-internet-tools.mjs",
+    "smoke:product-flow": "node scripts/smoke-product-flow.mjs",
+    "smoke:phase2b-latency": "node scripts/smoke-phase2b-latency.mjs",
+    "smoke:live-providers": "node scripts/smoke-live-providers.mjs",
+    "check:voxcpm": "node scripts/check-voxcpm-local.mjs",
+    "voxcpm:check-prereqs": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-voxcpm-local.ps1 -CheckOnly",
+    "voxcpm:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-voxcpm-local.ps1 -InstallOnly",
+    "voxcpm:serve": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-voxcpm-local.ps1",
+    "run:live-clicky": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-live-clicky-session.ps1",
+    "tauri:dev": "npm run tauri:dev -w apps/clicky-windows",
+    "tauri:build": "npm run tauri:build -w apps/clicky-windows",
+    "worker:dev": "npm run dev -w worker",
+    "audit:prod": "npm audit --omit=dev",
+    "audit:goal": "node scripts/audit-clicky-goal.mjs",
+    "configure:live-providers": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/configure-live-providers.ps1"
+  },
+  "engines": {
+    "node": ">=20.19.0",
+    "npm": ">=10.0.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.59.1"
+  }
+}

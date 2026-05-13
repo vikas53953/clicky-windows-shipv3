@@ -1,0 +1,10 @@
+MOCK_MODE=false
+LLM_PROVIDER=opencode
+OPENCODE_MODEL=minimax-m2.7
+OPENCODE_API_MODE=chat_completions
+OPENCODE_BASE_URL=https://opencode.ai/zen/go/v1
+OPENCODE_API_KEY=replace-with-opencode-api-key
+ELEVENLABS_API_KEY=replace-with-elevenlabs-api-key
+ELEVENLABS_VOICE_ID=
+ELEVENLABS_STT_MODEL_ID=scribe_v1
+ASSEMBLYAI_API_KEY=
