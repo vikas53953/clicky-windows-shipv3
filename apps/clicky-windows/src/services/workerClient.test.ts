@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { chooseFinalTranscript, defaultSettings, formatWorkerHttpError, requestTextToSpeech, summarizeVoiceHealth, testVoiceHealth, transcribeAudio } from "./workerClient";
+import {
+  chooseFinalTranscript,
+  defaultSettings,
+  formatWorkerHttpError,
+  modelSupportsScreenImages,
+  requestTextToSpeech,
+  summarizeVoiceHealth,
+  testVoiceHealth,
+  transcribeAudio
+} from "./workerClient";
 
 describe("workerClient", () => {
   it("turns ElevenLabs unusual-activity responses into a useful user message", () => {
@@ -50,13 +59,22 @@ describe("workerClient", () => {
     ).toBe("ElevenLabs blocked this key/account.");
   });
 
-  it("prefers ElevenLabs as the final transcript when both STT paths exist", () => {
+  it("prefers ElevenLabs as the final transcript when it has enough content", () => {
     expect(
       chooseFinalTranscript({
         webviewTranscript: "can you play the game with me",
         providerTranscript: "can you check the weather of Delhi with me"
       })
     ).toEqual({ transcript: "can you check the weather of Delhi with me", source: "elevenlabs" });
+  });
+
+  it("keeps the longer WebView transcript when provider STT returns a suspiciously tiny phrase", () => {
+    expect(
+      chooseFinalTranscript({
+        webviewTranscript: "can you check the weather of Delhi for me",
+        providerTranscript: "with me"
+      })
+    ).toEqual({ transcript: "can you check the weather of Delhi for me", source: "webview" });
   });
 
   it("falls back to WebView only when provider STT is empty", () => {
@@ -66,5 +84,10 @@ describe("workerClient", () => {
         providerTranscript: ""
       })
     ).toEqual({ transcript: "weather of Delhi", source: "webview" });
+  });
+
+  it("detects when the active model cannot receive screenshots", () => {
+    expect(modelSupportsScreenImages({ provider: "opencode", model: "minimax-m2.7" })).toBe(false);
+    expect(modelSupportsScreenImages({ provider: "anthropic", model: "claude-sonnet-4-5" })).toBe(true);
   });
 });

@@ -20,8 +20,10 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-const OVERLAY_WIDTH: i32 = 260;
-const OVERLAY_HEIGHT: i32 = 92;
+const OVERLAY_IDLE_WIDTH: i32 = 74;
+const OVERLAY_IDLE_HEIGHT: i32 = 54;
+const OVERLAY_BUBBLE_WIDTH: i32 = 380;
+const OVERLAY_BUBBLE_HEIGHT: i32 = 210;
 const OVERLAY_MARGIN: i32 = 12;
 const CURSOR_FOLLOW_INTERVAL_MS: u64 = 45;
 const PHASE2_SHORTCUT: &str = "ctrl+alt+space";
@@ -29,6 +31,7 @@ const FALLBACK_SHORTCUT: &str = "ctrl+shift+space";
 const MAX_SCREENSHOT_WIDTH: u32 = 1280;
 
 static ACTIVE_SHORTCUT: OnceLock<Mutex<String>> = OnceLock::new();
+static OVERLAY_SIZE: OnceLock<Mutex<(i32, i32)>> = OnceLock::new();
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -128,7 +131,15 @@ fn set_overlay_visible(app: AppHandle, visible: bool) -> WorkerCheck {
 #[tauri::command]
 fn set_overlay_state(app: AppHandle, state: OverlayState) -> WorkerCheck {
     let _ = app.emit("clicky-overlay-state", state.clone());
+    let (width, height) = overlay_dimensions_for_state(&state);
+    if let Ok(mut size) = overlay_size_cell().lock() {
+        *size = (width, height);
+    }
+
     if let Some(window) = app.get_webview_window("overlay") {
+        let _ = window.set_size(tauri::PhysicalSize::new(width as u32, height as u32));
+        let cursor = cursor_context_from_app(&app);
+        let _ = window.set_position(overlay_position_for_cursor(&cursor));
         let _ = if state.visible {
             window.show()
         } else {
@@ -280,20 +291,41 @@ fn cursor_context_from_app(app: &AppHandle) -> CursorContext {
     }
 }
 
+fn overlay_size_cell() -> &'static Mutex<(i32, i32)> {
+    OVERLAY_SIZE.get_or_init(|| Mutex::new((OVERLAY_IDLE_WIDTH, OVERLAY_IDLE_HEIGHT)))
+}
+
+fn current_overlay_size() -> (i32, i32) {
+    overlay_size_cell()
+        .lock()
+        .map(|size| *size)
+        .unwrap_or((OVERLAY_IDLE_WIDTH, OVERLAY_IDLE_HEIGHT))
+}
+
+fn overlay_dimensions_for_state(state: &OverlayState) -> (i32, i32) {
+    let has_bubble = !state.text.trim().is_empty() && state.status != "idle" && state.status != "listening";
+    if has_bubble {
+        (OVERLAY_BUBBLE_WIDTH, OVERLAY_BUBBLE_HEIGHT)
+    } else {
+        (OVERLAY_IDLE_WIDTH, OVERLAY_IDLE_HEIGHT)
+    }
+}
+
 fn overlay_position_for_cursor(cursor: &CursorContext) -> PhysicalPosition<i32> {
+    let (overlay_width, overlay_height) = current_overlay_size();
     let min_x = cursor.monitor_x + OVERLAY_MARGIN;
     let min_y = cursor.monitor_y + OVERLAY_MARGIN;
-    let max_x = cursor.monitor_x + cursor.monitor_width as i32 - OVERLAY_WIDTH - OVERLAY_MARGIN;
-    let max_y = cursor.monitor_y + cursor.monitor_height as i32 - OVERLAY_HEIGHT - OVERLAY_MARGIN;
+    let max_x = cursor.monitor_x + cursor.monitor_width as i32 - overlay_width - OVERLAY_MARGIN;
+    let max_y = cursor.monitor_y + cursor.monitor_height as i32 - overlay_height - OVERLAY_MARGIN;
 
     let mut target_x = cursor.x + 24;
     let mut target_y = cursor.y + 24;
 
     if target_x > max_x {
-        target_x = cursor.x - OVERLAY_WIDTH - 24;
+        target_x = cursor.x - overlay_width - 24;
     }
     if target_y > max_y {
-        target_y = cursor.y - OVERLAY_HEIGHT - 24;
+        target_y = cursor.y - overlay_height - 24;
     }
 
     PhysicalPosition::new(target_x.clamp(min_x, max_x), target_y.clamp(min_y, max_y))
@@ -320,7 +352,7 @@ fn create_overlay(app: &AppHandle) -> tauri::Result<()> {
     .always_on_top(true)
     .skip_taskbar(true)
     .resizable(false)
-    .inner_size(OVERLAY_WIDTH as f64, OVERLAY_HEIGHT as f64)
+    .inner_size(OVERLAY_IDLE_WIDTH as f64, OVERLAY_IDLE_HEIGHT as f64)
     .visible(true)
     .build()?;
 

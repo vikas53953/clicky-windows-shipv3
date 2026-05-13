@@ -23,6 +23,7 @@ import {
 } from "./services/nativeBridge";
 import { overlayTextForSession } from "./services/overlayText";
 import { executeDesktopToolCalls, parseDesktopToolBlocks } from "./services/desktopTools";
+import { parsePointTags } from "./services/pointTags";
 import { captureScreenContext } from "./services/screenCapture";
 import { shouldCaptureScreenForTranscript } from "./services/screenIntent";
 import { migrateStoredSettings } from "./services/settingsMigration";
@@ -34,15 +35,18 @@ import {
   buildMockResponse,
   chooseFinalTranscript,
   defaultSettings,
+  modelSupportsScreenImages,
   requestTextToSpeech,
   streamChatResponse,
   summarizeVoiceHealth,
   testWorkerConnection,
   testVoiceHealth,
   transcribeAudio,
+  type ConversationMessage,
   type ClickySettings,
   type ScreenContext
 } from "./services/workerClient";
+import { parseWorkflowPlanBlocks } from "./services/workflowPlan";
 import "./styles.css";
 
 const SETTINGS_STORAGE_KEY = "clicky-settings-v1";
@@ -66,6 +70,13 @@ interface LiveFlowTiming {
   screenshotMode?: "captured" | "skipped" | "failed";
   transcriptSource?: "webview" | "elevenlabs";
   model?: string;
+}
+
+function cleanAssistantMemoryText(rawResponse: string): string {
+  const pointParsed = parsePointTags(rawResponse);
+  const toolsParsed = parseDesktopToolBlocks(pointParsed.cleanText);
+  const planParsed = parseWorkflowPlanBlocks(toolsParsed.cleanText);
+  return planParsed.cleanText.trim();
 }
 
 function loadInitialSettings(forceMockMode: boolean): ClickySettings {
@@ -137,6 +148,7 @@ export default function App() {
   const forceMockMode = query.get("mock") === "true";
   const [settings, setSettings] = useState<ClickySettings>(() => loadInitialSettings(forceMockMode));
   const [session, setSession] = useState(createInitialSession);
+  const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([]);
   const [workerStatus, setWorkerStatus] = useState("Not tested");
   const [cursor, setCursor] = useState({ x: 720, y: 360 });
   const [nativeCursor, setNativeCursor] = useState<NativeCursorContext | null>(null);
@@ -167,6 +179,7 @@ export default function App() {
   const liveFlowTurnRef = useRef<number | null>(null);
   const activeTurnRef = useRef(0);
   const activeAbortRef = useRef<AbortController | null>(null);
+  const conversationMessagesRef = useRef<ConversationMessage[]>([]);
   const nativeRuntime = isTauriRuntime();
 
   const dispatch = useCallback((event: ClickySessionEvent) => {
@@ -241,6 +254,10 @@ export default function App() {
   useEffect(() => {
     sessionStatusRef.current = session.status;
   }, [session.status]);
+
+  useEffect(() => {
+    conversationMessagesRef.current = conversationMessages;
+  }, [conversationMessages]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("overlay-window-root", isOverlayWindow);
@@ -473,8 +490,20 @@ export default function App() {
       }
 
       safeDispatch({ type: "screenCaptured" });
-      safeSetWorkerStatus(`Streaming ${settings.provider}/${settings.model} via Worker...`);
-      publishOverlayState({ status: "thinking", text: `Asking ${settings.model} through the Worker...`, visible: settings.showClicky });
+      const canUseScreenshots = modelSupportsScreenImages(settings);
+      safeSetWorkerStatus(
+        screenshots.length && !canUseScreenshots
+          ? `Streaming ${settings.provider}/${settings.model}; this model cannot receive raw screenshots, so Clicky will use transcript and tools only.`
+          : `Streaming ${settings.provider}/${settings.model} via Worker...`
+      );
+      publishOverlayState({
+        status: "thinking",
+        text:
+          screenshots.length && !canUseScreenshots
+            ? "Current model cannot see screenshots. I will answer from your words and tools only."
+            : `Asking ${settings.model} through the Worker...`,
+        visible: settings.showClicky
+      });
 
       const chatStartedAt = performance.now();
       let firstTokenSeen = false;
@@ -493,7 +522,7 @@ export default function App() {
             }
           })
         : null;
-      const responseText = await streamChatResponse(settings, { transcript, screenshots, quickResponse: !needsScreenContext }, (chunk) => {
+      const responseText = await streamChatResponse(settings, { transcript, screenshots, quickResponse: !needsScreenContext, messages: conversationMessagesRef.current }, (chunk) => {
         if (!current()) return;
         if (!firstTokenSeen) {
           firstTokenSeen = true;
@@ -504,6 +533,12 @@ export default function App() {
       }, signal);
       if (!current()) return;
       timing.chatTotalMs = msSince(chatStartedAt);
+      const assistantMemory = cleanAssistantMemoryText(responseText);
+      const newMessages: ConversationMessage[] = [
+        { role: "user", content: transcript },
+        { role: "assistant", content: assistantMemory || responseText }
+      ];
+      setConversationMessages((currentMessages) => [...currentMessages, ...newMessages].slice(-20));
 
       if (settings.voiceEnabled) {
         try {
@@ -612,10 +647,6 @@ export default function App() {
 
     if (!isOverlayWindow) {
       void listenNativeEvent<NativeShortcutEvent>("clicky-shortcut", (event) => {
-        if (event.phase === "toggle") {
-          toggleListening();
-          return;
-        }
         if (event.phase === "started" && sessionStatusRef.current !== "listening") startListening({ autoStopOnSilence: false });
         if (event.phase === "ended" && sessionStatusRef.current === "listening") stopListening();
       }).then((unlisten) => unlistenCallbacks.push(unlisten));
@@ -740,6 +771,7 @@ export default function App() {
   const clearConversation = () => {
     clearTimers();
     clearVoiceMeter();
+    setConversationMessages([]);
     dispatch({ type: "clearConversation" });
   };
 

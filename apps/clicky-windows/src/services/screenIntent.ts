@@ -1,29 +1,3 @@
-const SCREEN_CONTEXT_TERMS = [
-  "screen",
-  "click",
-  "button",
-  "window",
-  "app",
-  "page",
-  "website",
-  "where",
-  "this",
-  "that",
-  "here",
-  "visible",
-  "see",
-  "look",
-  "open",
-  "select",
-  "field",
-  "menu",
-  "tab",
-  "cursor",
-  "mouse",
-  "show me",
-  "help me with"
-];
-
 const CONVERSATIONAL_TERMS = [
   "are you there",
   "say hi",
@@ -38,13 +12,10 @@ export function shouldCaptureScreenForTranscript(transcript: string): boolean {
   const text = transcript.trim().toLowerCase();
   if (!text) return true;
 
-  const asksForScreen = SCREEN_CONTEXT_TERMS.some((term) => includesTerm(text, term));
-  if (asksForScreen) return true;
-
   const conversational = CONVERSATIONAL_TERMS.some((term) => includesTerm(text, term));
-  if (conversational) return false;
+  if (conversational && text.split(/\s+/).length <= 8) return false;
 
-  return false;
+  return true;
 }
 
 function includesTerm(text: string, term: string): boolean {

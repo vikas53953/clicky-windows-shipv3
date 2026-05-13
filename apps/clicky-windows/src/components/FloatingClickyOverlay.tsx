@@ -29,7 +29,7 @@ export function FloatingClickyOverlay({
   const style = { "--clicky-accent": accentColor } as CSSProperties;
 
   return (
-    <section className={`floating-overlay floating-${status}`} aria-label="Clicky floating overlay" style={style}>
+    <section className={`floating-overlay floating-${status} ${showBubble ? "has-bubble" : "buddy-only"}`} aria-label="Clicky floating overlay" style={style}>
       {showClicky ? (
         <div className={`floating-buddy clicky-${status} ${readyListening ? "ready-listening" : ""}`}>
           <ClickyMark avatar={avatar} accentColor={accentColor} size="small" />
@@ -43,8 +43,7 @@ export function FloatingClickyOverlay({
         </div>
       ) : null}
       {showBubble ? (
-        <div className="floating-bubble">
-          <span className="bubble-title">Clicky</span>
+        <div className="floating-bubble" aria-live="polite">
           <p>{text}</p>
         </div>
       ) : null}

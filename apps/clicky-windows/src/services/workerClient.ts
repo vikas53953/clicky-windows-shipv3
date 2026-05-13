@@ -61,6 +61,11 @@ export interface ScreenContext {
   cursorY?: number;
 }
 
+export interface ConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export const defaultSettings: ClickySettings = {
   workerUrl: import.meta.env.VITE_CLICKY_WORKER_URL ?? "http://127.0.0.1:8789",
   model: "minimax-m2.7",
@@ -74,6 +79,13 @@ export const defaultSettings: ClickySettings = {
   debugMode: false,
   mockMode: (import.meta.env.VITE_CLICKY_MOCK_MODE ?? "true") === "true"
 };
+
+export function modelSupportsScreenImages(settings: Pick<ClickySettings, "provider" | "model">): boolean {
+  const requested = `${settings.provider} ${settings.model}`.toLowerCase();
+  if (requested.includes("minimax") || requested.includes("m2.7") || requested.includes("m2-7")) return false;
+  if (requested.includes("kimi") || requested.includes("moonshot")) return false;
+  return /gpt|claude|vision|vl|multimodal|gemini|qwen-vl|pixtral/.test(requested);
+}
 
 export async function testWorkerConnection(settings: ClickySettings): Promise<WorkerHealth> {
   if (settings.mockMode) {
@@ -144,33 +156,40 @@ export function chooseFinalTranscript(input: {
   providerTranscript: string;
 }): { transcript: string; source: "webview" | "elevenlabs" } {
   const providerTranscript = input.providerTranscript.trim();
-  if (providerTranscript) {
+  const webviewTranscript = input.webviewTranscript.trim();
+  const providerWordCount = wordCount(providerTranscript);
+  const webviewWordCount = wordCount(webviewTranscript);
+
+  if (providerTranscript && (providerWordCount >= 3 || webviewWordCount <= providerWordCount + 1)) {
     return { transcript: providerTranscript, source: "elevenlabs" };
   }
 
-  return { transcript: input.webviewTranscript.trim(), source: "webview" };
+  return { transcript: webviewTranscript, source: "webview" };
 }
 
 export async function streamChatResponse(
   settings: ClickySettings,
-  request: { transcript: string; screenshots: ScreenContext[]; quickResponse?: boolean },
+  request: { transcript: string; screenshots: ScreenContext[]; quickResponse?: boolean; messages?: ConversationMessage[] },
   onChunk: (chunk: string) => void,
   signal?: AbortSignal
 ): Promise<string> {
   const workerUrl = settings.workerUrl.replace(/\/$/, "");
+  const timeout = createTimeoutSignal(signal, 30_000, "Chat provider took too long to respond.");
   const response = await fetchWorker(workerUrl, "/chat", {
     method: "POST",
     headers: {
       Accept: "text/event-stream",
       "Content-Type": "application/json"
     },
-    signal,
+    signal: timeout.signal,
     body: JSON.stringify({
       provider: settings.provider,
       model: settings.model,
       responseMode: request.quickResponse ? "quick" : "screen_guidance",
       computerUseEnabled: settings.computerUseEnabled,
       transcript: request.transcript,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      messages: request.messages,
       screenshots: request.screenshots.map((screenshot) => ({
         mediaType: screenshot.mediaType,
         base64: screenshot.base64,
@@ -186,7 +205,7 @@ export async function streamChatResponse(
         cursorY: screenshot.cursorY
       }))
     })
-  });
+  }).finally(timeout.cleanup);
 
   if (!response.ok) {
     throw new Error(`Chat failed with HTTP ${response.status}: ${await response.text()}`);
@@ -225,12 +244,13 @@ export async function transcribeAudio(settings: ClickySettings, audio: Blob, sig
   });
   form.append("audio", file);
 
+  const timeout = createTimeoutSignal(signal, 30_000, "Transcription took too long.");
   const response = await fetchWorker(workerUrl, "/transcribe", {
     method: "POST",
     headers: { Accept: "application/json" },
     body: form,
-    signal
-  });
+    signal: timeout.signal
+  }).finally(timeout.cleanup);
 
   if (!response.ok) {
     throw new Error(formatWorkerHttpError("Transcription", response.status, await response.text()));
@@ -244,6 +264,7 @@ export async function requestTextToSpeech(settings: ClickySettings, text: string
   if (settings.mockMode || !settings.voiceEnabled || !text.trim()) return null;
 
   const workerUrl = settings.workerUrl.replace(/\/$/, "");
+  const timeout = createTimeoutSignal(signal, 30_000, "Voice provider took too long.");
   const response = await fetchWorker(workerUrl, "/tts", {
     method: "POST",
     headers: {
@@ -251,8 +272,8 @@ export async function requestTextToSpeech(settings: ClickySettings, text: string
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ text }),
-    signal
-  });
+    signal: timeout.signal
+  }).finally(timeout.cleanup);
 
   if (!response.ok) {
     throw new Error(formatWorkerHttpError("TTS", response.status, await response.text()));
@@ -267,11 +288,44 @@ export async function requestTextToSpeech(settings: ClickySettings, text: string
 async function fetchWorker(workerUrl: string, path: string, init: RequestInit): Promise<Response> {
   try {
     return await fetch(`${workerUrl}${path}`, init);
-  } catch {
+  } catch (error) {
+    if (init.signal?.aborted) {
+      const reason = init.signal.reason;
+      throw new Error(typeof reason === "string" ? reason : "Clicky request was cancelled or took too long.");
+    }
+
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Clicky request was cancelled or took too long.");
+    }
+
     throw new Error(
       `Worker is not reachable at ${workerUrl}. Start it with npm run worker:dev, or use npm run run:live-clicky so the Worker and app start together.`
     );
   }
+}
+
+function wordCount(value: string): number {
+  return value.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function createTimeoutSignal(parent: AbortSignal | undefined, timeoutMs: number, message: string): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(message), timeoutMs);
+  const abort = () => controller.abort(parent?.reason || "Clicky request was cancelled.");
+
+  if (parent?.aborted) {
+    abort();
+  } else {
+    parent?.addEventListener("abort", abort, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      window.clearTimeout(timer);
+      parent?.removeEventListener("abort", abort);
+    }
+  };
 }
 
 export function formatWorkerHttpError(action: string, status: number, body: string): string {

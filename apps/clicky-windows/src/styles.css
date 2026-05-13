@@ -384,24 +384,30 @@ h1 {
   width: 100vw;
   height: 100vh;
   align-items: flex-start;
-  gap: 6px;
-  padding: 5px 6px;
+  gap: 8px;
+  padding: 7px;
   background: transparent;
   pointer-events: none;
+}
+
+.floating-overlay.buddy-only {
+  align-items: center;
 }
 
 .floating-buddy {
   position: relative;
   display: inline-flex;
   width: auto;
-  min-width: 18px;
-  height: 24px;
+  min-width: 28px;
+  height: 34px;
   flex: 0 0 auto;
   align-items: center;
   gap: 5px;
   color: var(--clicky-accent);
   filter: drop-shadow(0 0 6px color-mix(in srgb, var(--clicky-accent) 58%, transparent))
     drop-shadow(0 0 14px color-mix(in srgb, var(--clicky-accent) 32%, transparent));
+  animation: clicky-breathe 1900ms ease-in-out infinite;
+  transform-origin: 50% 55%;
 }
 
 .floating-buddy.ready-listening,
@@ -409,27 +415,39 @@ h1 {
   color: var(--clicky-accent);
 }
 
+.clicky-listening {
+  animation: clicky-listen-glow 720ms ease-in-out infinite alternate;
+}
+
+.clicky-thinking,
+.clicky-transcribing,
+.clicky-capturing_screen {
+  animation: clicky-thinking-pulse 820ms ease-in-out infinite;
+}
+
+.clicky-speaking {
+  animation: clicky-speaking-bob 720ms ease-in-out infinite;
+}
+
 .floating-bubble {
   min-width: 0;
-  max-width: 220px;
-  max-height: 76px;
+  max-width: min(300px, calc(100vw - 58px));
+  max-height: 176px;
   overflow: hidden;
-  border: 1px solid rgba(23, 32, 51, 0.1);
-  border-radius: 9px;
-  padding: 7px 9px;
+  border: 1px solid rgba(23, 32, 51, 0.09);
+  border-radius: 12px;
+  padding: 9px 11px;
   background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 10px 24px rgba(47, 64, 91, 0.12);
+  box-shadow: 0 14px 30px rgba(47, 64, 91, 0.16);
+  animation: bubble-in 160ms ease-out;
 }
 
 .floating-bubble p {
-  display: -webkit-box;
-  margin: 4px 0 0;
+  margin: 0;
   overflow: hidden;
   color: #172033;
   font-size: 12px;
-  line-height: 1.3;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  line-height: 1.35;
 }
 
 .spin {
@@ -482,8 +500,8 @@ h1 {
 }
 
 .clicky-mark-classic.clicky-mark-small {
-  width: 14px;
-  height: 16px;
+  width: 19px;
+  height: 22px;
 }
 
 .clicky-mark-classic.clicky-mark-preview {
@@ -510,8 +528,8 @@ h1 {
 }
 
 .clicky-mark-dot.clicky-mark-small {
-  width: 15px;
-  height: 15px;
+  width: 20px;
+  height: 20px;
 }
 
 .clicky-mark-dot.clicky-mark-preview {
@@ -525,8 +543,8 @@ h1 {
 }
 
 .clicky-mark-spark.clicky-mark-small {
-  width: 17px;
-  height: 17px;
+  width: 21px;
+  height: 21px;
 }
 
 .clicky-mark-spark.clicky-mark-preview {
@@ -581,8 +599,8 @@ h1 {
 
 .clicky-mark-orb.clicky-mark-small,
 .clicky-mark-comet.clicky-mark-small {
-  width: 15px;
-  height: 15px;
+  width: 20px;
+  height: 20px;
 }
 
 .clicky-mark-orb.clicky-mark-preview,
@@ -605,7 +623,7 @@ h1 {
 }
 
 .voice-waveform.compact {
-  height: 17px;
+  height: 18px;
   gap: 2px;
 }
 
@@ -623,7 +641,58 @@ h1 {
 
 .voice-waveform.compact span {
   width: 2px;
-  height: 14px;
+  height: 16px;
+}
+
+@keyframes clicky-breathe {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-1px) scale(1.04);
+  }
+}
+
+@keyframes clicky-listen-glow {
+  from {
+    filter: drop-shadow(0 0 7px color-mix(in srgb, var(--clicky-accent) 56%, transparent));
+  }
+  to {
+    filter: drop-shadow(0 0 11px color-mix(in srgb, var(--clicky-accent) 78%, transparent))
+      drop-shadow(0 0 22px color-mix(in srgb, var(--clicky-accent) 34%, transparent));
+  }
+}
+
+@keyframes clicky-thinking-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.92);
+  }
+}
+
+@keyframes clicky-speaking-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes bubble-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
 }
 
 .overlay-bubble {

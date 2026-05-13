@@ -69,7 +69,7 @@ function Get-OverlayRect([int]$ProcessId) {
     $rects = [ClickyNativeSmoke]::GetWindowRectsForProcess($ProcessId) | Where-Object {
       $width = $_.Right - $_.Left
       $height = $_.Bottom - $_.Top
-      $width -ge 180 -and $width -le 320 -and $height -ge 70 -and $height -le 140
+      $width -ge 20 -and $width -le 420 -and $height -ge 20 -and $height -le 240
     }
 
     if ($rects.Count -gt 0) {

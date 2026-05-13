@@ -28,7 +28,7 @@ export interface NativeOverlayState {
 }
 
 export interface NativeShortcutEvent {
-  phase: "started" | "ended" | "toggle";
+  phase: "started" | "ended";
   shortcut: string;
 }
 

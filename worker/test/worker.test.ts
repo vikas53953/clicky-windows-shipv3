@@ -750,4 +750,117 @@ describe("Clicky Worker", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "ElevenLabs speech-to-text is not configured." });
   });
+
+  it("normalizes Anthropic SSE into Clicky's chunk stream format", async () => {
+    const originalFetch = globalThis.fetch;
+    let upstreamBody = "";
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://api.anthropic.com/v1/messages")) {
+        upstreamBody = String(init?.body || "");
+        return new Response(
+          [
+            'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hi "}}\n',
+            '\nevent: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Vikas"}}\n',
+            '\nevent: message_stop\ndata: {"type":"message_stop"}\n\n'
+          ].join(""),
+          { status: 200, headers: { "content-type": "text/event-stream" } }
+        );
+      }
+
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      const response = await handleRequest(
+        new Request("http://worker.local/chat", {
+          method: "POST",
+          headers: {
+            Origin: "http://127.0.0.1:5174",
+            "Content-Type": "application/json",
+            "cf-connecting-ip": "anthropic-test"
+          },
+          body: JSON.stringify({
+            provider: "anthropic",
+            transcript: "continue",
+            messages: [{ role: "user", content: "Remember Delhi." }]
+          })
+        }),
+        { ...env, MOCK_MODE: "false", LLM_PROVIDER: "anthropic", ANTHROPIC_API_KEY: "test-key" }
+      );
+
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(text).toContain('data: {"type":"chunk","text":"Hi "}');
+      expect(text).toContain('data: {"type":"chunk","text":"Vikas"}');
+      expect(text).toContain("data: [DONE]");
+      expect(upstreamBody).toContain("Remember Delhi.");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("answers current time through Worker tool context without relying on the model", async () => {
+    const response = await handleRequest(
+      new Request("http://worker.local/chat", {
+        method: "POST",
+        headers: {
+          Origin: "http://127.0.0.1:5174",
+          "Content-Type": "application/json",
+          "cf-connecting-ip": "time-test"
+        },
+        body: JSON.stringify({ responseMode: "quick", transcript: "what time is it in my area", timezone: "Asia/Kolkata" })
+      }),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text).toContain("Current date and time in Asia/Kolkata");
+  });
+
+  it("enforces strict configured CORS origins while preserving Tauri origin", async () => {
+    const blocked = await handleRequest(
+      new Request("http://worker.local/chat", {
+        method: "OPTIONS",
+        headers: { Origin: "http://localhost:9999" }
+      }),
+      env
+    );
+    expect(blocked.headers.get("Access-Control-Allow-Origin")).toBe("http://127.0.0.1:5174");
+
+    const tauri = await handleRequest(
+      new Request("http://worker.local/chat", {
+        method: "OPTIONS",
+        headers: { Origin: "http://tauri.localhost" }
+      }),
+      env
+    );
+    expect(tauri.headers.get("Access-Control-Allow-Origin")).toBe("http://tauri.localhost");
+  });
+
+  it("rejects oversized screenshot batches before provider calls", async () => {
+    const response = await handleRequest(
+      new Request("http://worker.local/chat", {
+        method: "POST",
+        headers: {
+          Origin: "http://127.0.0.1:5174",
+          "Content-Type": "application/json",
+          "cf-connecting-ip": "size-test"
+        },
+        body: JSON.stringify({
+          transcript: "look at this",
+          screenshots: [
+            { mediaType: "image/jpeg", base64: "a" },
+            { mediaType: "image/jpeg", base64: "b" },
+            { mediaType: "image/jpeg", base64: "c" }
+          ]
+        })
+      }),
+      env
+    );
+
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ error: "Too many screenshots. Send at most 2." });
+  });
 });

@@ -14,6 +14,7 @@ export interface WorkerEnv {
   LLM_PROVIDER?: string;
   MOCK_MODE?: string;
   DEFAULT_WEATHER_LOCATION?: string;
+  DEFAULT_TIMEZONE?: string;
 }
 
 interface ChatRequest {
@@ -21,8 +22,9 @@ interface ChatRequest {
   model?: string;
   responseMode?: "quick" | "screen_guidance" | string;
   computerUseEnabled?: boolean;
+  timezone?: string;
   provider?: "anthropic" | "openai" | "opencode" | string;
-  messages?: unknown[];
+  messages?: ConversationMessage[];
   screenshots?: Array<{
     mediaType: "image/png" | "image/jpeg" | string;
     base64: string;
@@ -30,12 +32,18 @@ interface ChatRequest {
   system?: string;
 }
 
+interface ConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 interface InternetToolRequest {
   transcript?: string;
+  timezone?: string;
 }
 
 interface InternetToolResult {
-  type: "weather" | "search" | "url";
+  type: "weather" | "search" | "url" | "time";
   status: "ok" | "needs_location" | "no_answer" | "error";
   label?: string;
   summary?: string;
@@ -52,6 +60,12 @@ const defaultAllowedOrigins = [
   "https://tauri.localhost",
   "tauri://localhost"
 ];
+
+const CHAT_MAX_BYTES = 10 * 1024 * 1024;
+const TRANSCRIBE_MAX_BYTES = 5 * 1024 * 1024;
+const MAX_SCREENSHOTS = 2;
+const MAX_SCREENSHOT_BASE64_BYTES = 6 * 1024 * 1024;
+const rateLimitBuckets = new Map<string, { windowStart: number; count: number }>();
 
 const clickySystemPrompt = `You are Clicky, a practical Windows desktop tutor that can see the user's current screen only when they explicitly ask for help.
 
@@ -97,6 +111,9 @@ export async function handleRequest(request: Request, env: WorkerEnv): Promise<R
   const url = new URL(request.url);
 
   try {
+    const limited = rateLimitResponse(request, url.pathname, cors);
+    if (limited) return limited;
+
     if (url.pathname === "/health" && request.method === "GET") {
       return json({ ok: true, mode: isMock(env) ? "mock" : "live", message: "Clicky Worker reachable." }, 200, cors);
     }
@@ -136,14 +153,22 @@ export async function handleRequest(request: Request, env: WorkerEnv): Promise<R
 }
 
 async function chat(request: Request, env: WorkerEnv, cors: HeadersInit): Promise<Response> {
+  if (requestTooLarge(request, CHAT_MAX_BYTES)) {
+    return json({ error: "Chat request is too large. Limit screenshots to two compressed images." }, 413, cors);
+  }
+
   const body = (await request.json()) as ChatRequest;
-  const tools = await resolveInternetTools(body.transcript || "", env);
+  const validation = validateChatRequest(body);
+  if (validation) return json({ error: validation }, 413, cors);
+
+  const tools = await resolveInternetTools(body.transcript || "", env, body.timezone);
   const bodyWithTools = appendToolContext(body, tools);
   const provider = resolveLlmProvider(body, env);
   const directToolAnswer = directAnswerFromTools(body, tools);
+  const directTimeAnswer = directTimeAnswerFromTools(body, tools);
 
-  if (directToolAnswer) {
-    return sse([directToolAnswer], cors);
+  if (directToolAnswer || directTimeAnswer) {
+    return sse([directToolAnswer || directTimeAnswer], cors);
   }
 
   if (isMock(env)) {
@@ -174,7 +199,7 @@ async function chat(request: Request, env: WorkerEnv, cors: HeadersInit): Promis
 
 async function resolveToolsRoute(request: Request, env: WorkerEnv, cors: HeadersInit): Promise<Response> {
   const body = (await request.json()) as InternetToolRequest;
-  const tools = await resolveInternetTools(body.transcript || "", env);
+  const tools = await resolveInternetTools(body.transcript || "", env, body.timezone);
   return json({ tools }, 200, cors);
 }
 
@@ -202,12 +227,18 @@ function directAnswerFromTools(body: ChatRequest, tools: InternetToolResult[]): 
   return "";
 }
 
+function directTimeAnswerFromTools(body: ChatRequest, tools: InternetToolResult[]): string {
+  if (body.responseMode !== "quick" || !hasTimeIntent(body.transcript || "")) return "";
+  const summary = tools.find((tool) => tool.type === "time" && tool.summary)?.summary;
+  return summary ? `${summary} ` : "";
+}
+
 async function anthropicChat(body: ChatRequest, env: WorkerEnv, cors: HeadersInit): Promise<Response> {
   if (!env.ANTHROPIC_API_KEY) {
     return json({ error: "Anthropic is not configured." }, 503, cors);
   }
 
-  const messages = Array.isArray(body.messages) ? body.messages : buildAnthropicMessages(body);
+  const messages = buildAnthropicMessages(body);
   const upstream = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -224,13 +255,17 @@ async function anthropicChat(body: ChatRequest, env: WorkerEnv, cors: HeadersIni
     })
   });
 
-  return new Response(upstream.body, {
-    status: upstream.status,
-    headers: {
-      ...cors,
-      "content-type": upstream.headers.get("content-type") || "text/event-stream"
-    }
-  });
+  if (!upstream.body || !upstream.ok) {
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: {
+        ...cors,
+        "content-type": upstream.headers.get("content-type") || "application/json"
+      }
+    });
+  }
+
+  return normalizeAnthropicStream(upstream.body, cors);
 }
 
 async function openAiChat(body: ChatRequest, env: WorkerEnv, cors: HeadersInit): Promise<Response> {
@@ -388,6 +423,10 @@ async function tts(request: Request, env: WorkerEnv, cors: HeadersInit): Promise
 }
 
 async function transcribeAudio(request: Request, env: WorkerEnv, cors: HeadersInit): Promise<Response> {
+  if (requestTooLarge(request, TRANSCRIBE_MAX_BYTES)) {
+    return json({ error: "Audio upload is too large. Keep recordings short and under 5 MB." }, 413, cors);
+  }
+
   if (isMock(env)) {
     return json({ text: "Where should I click on this screen?", provider: "mock" }, 200, cors);
   }
@@ -672,13 +711,17 @@ function appendToolContext(body: ChatRequest, tools: InternetToolResult[]): Chat
   };
 }
 
-async function resolveInternetTools(transcript: string, env: WorkerEnv): Promise<InternetToolResult[]> {
+async function resolveInternetTools(transcript: string, env: WorkerEnv, timezone?: string): Promise<InternetToolResult[]> {
   const text = transcript.trim();
   if (!text) return [];
 
   const tools: InternetToolResult[] = [];
   if (hasWeatherIntent(text)) {
     tools.push(...(await resolveWeatherTools(text, env)));
+  }
+
+  if (hasTimeIntent(text)) {
+    tools.push(resolveTimeTool(bodyTimezoneHint(timezone, env)));
   }
 
   const url = extractFirstUrl(text);
@@ -697,6 +740,30 @@ function hasWeatherIntent(text: string): boolean {
 
 function hasSearchIntent(text: string): boolean {
   return /\b(search|look up|lookup|browse|internet|web|latest|news|find out|what happened|who is|what is)\b/i.test(text);
+}
+
+function hasTimeIntent(text: string): boolean {
+  return /\b(time|date|today|now|current time|what day)\b/i.test(text);
+}
+
+function bodyTimezoneHint(timezone: string | undefined, env: WorkerEnv): string {
+  return timezone?.trim() || env.DEFAULT_TIMEZONE?.trim() || "Asia/Kolkata";
+}
+
+function resolveTimeTool(timezone: string): InternetToolResult {
+  const formatted = new Intl.DateTimeFormat("en-IN", {
+    timeZone: timezone,
+    dateStyle: "full",
+    timeStyle: "medium"
+  }).format(new Date());
+
+  return {
+    type: "time",
+    status: "ok",
+    label: timezone,
+    summary: `Current date and time in ${timezone} is ${formatted}.`,
+    source: "Worker clock"
+  };
 }
 
 function isSimpleWeatherRequest(text: string): boolean {
@@ -1057,6 +1124,10 @@ function resolveOpenCodeBaseUrl(env: WorkerEnv, mode: "responses" | "chat_comple
 }
 
 function buildAnthropicMessages(body: ChatRequest): unknown[] {
+  const messages: unknown[] = normalizedConversationMessages(body).map((message) => ({
+    role: message.role,
+    content: message.content
+  }));
   const content: unknown[] = [
     {
       type: "text",
@@ -1075,7 +1146,7 @@ function buildAnthropicMessages(body: ChatRequest): unknown[] {
     });
   }
 
-  return [{ role: "user", content }];
+  return [...messages, { role: "user", content }];
 }
 
 function buildOpenAiInput(body: ChatRequest, provider = body.provider || "", resolvedModel = body.model || ""): unknown[] {
@@ -1101,7 +1172,7 @@ function buildOpenAiInput(body: ChatRequest, provider = body.provider || "", res
     }
   }
 
-  return [{ role: "user", content }];
+  return [...normalizedConversationMessages(body).map((message) => ({ role: message.role, content: message.content })), { role: "user", content }];
 }
 
 function buildChatCompletionsMessages(body: ChatRequest, provider = body.provider || "", resolvedModel = body.model || ""): unknown[] {
@@ -1131,8 +1202,28 @@ function buildChatCompletionsMessages(body: ChatRequest, provider = body.provide
 
   return [
     { role: "system", content: systemPromptFor(body) },
+    ...normalizedConversationMessages(body).map((message) => ({ role: message.role, content: message.content })),
     { role: "user", content: content.length === 1 ? String((content[0] as { text?: string }).text || body.transcript || "Help me with what is visible on my screen.") : content }
   ];
+}
+
+function normalizedConversationMessages(body: ChatRequest): ConversationMessage[] {
+  if (!Array.isArray(body.messages)) return [];
+
+  return body.messages
+    .filter((message): message is ConversationMessage => {
+      return (
+        message &&
+        (message.role === "user" || message.role === "assistant") &&
+        typeof message.content === "string" &&
+        Boolean(message.content.trim())
+      );
+    })
+    .slice(-20)
+    .map((message) => ({
+      role: message.role,
+      content: truncate(message.content.trim(), 2000)
+    }));
 }
 
 function supportsImageInput(provider: string, model: string): boolean {
@@ -1211,6 +1302,92 @@ function normalizeOpenAiStream(body: ReadableStream<Uint8Array>, cors: HeadersIn
       "cache-control": "no-cache"
     }
   });
+}
+
+function normalizeAnthropicStream(body: ReadableStream<Uint8Array>, cors: HeadersInit): Response {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let doneSent = false;
+
+  const stream = body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        buffer += decoder.decode(chunk, { stream: true });
+        const blocks = buffer.split(/\r?\n\r?\n/);
+        buffer = blocks.pop() || "";
+
+        for (const block of blocks) {
+          emitAnthropicBlock(block, controller, encoder, () => {
+            doneSent = true;
+          });
+        }
+      },
+      flush(controller) {
+        if (buffer.trim()) {
+          emitAnthropicBlock(buffer, controller, encoder, () => {
+            doneSent = true;
+          });
+        }
+
+        if (!doneSent) {
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        }
+      }
+    })
+  );
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      ...cors,
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache"
+    }
+  });
+}
+
+function emitAnthropicBlock(
+  block: string,
+  controller: TransformStreamDefaultController<Uint8Array>,
+  encoder: TextEncoder,
+  markDone: () => void
+) {
+  const data = block
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim())
+    .join("\n");
+
+  if (!data || data === "[DONE]") {
+    if (!data) return;
+    controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+    markDone();
+    return;
+  }
+
+  try {
+    const event = JSON.parse(data) as {
+      type?: string;
+      delta?: { type?: string; text?: string };
+      error?: { message?: string };
+    };
+
+    if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "chunk", text: event.delta.text })}\n\n`));
+    }
+
+    if (event.type === "message_stop") {
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      markDone();
+    }
+
+    if (event.type === "error" && event.error?.message) {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", text: event.error.message })}\n\n`));
+    }
+  } catch {
+    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", text: "Anthropic stream parse error." })}\n\n`));
+  }
 }
 
 function emitOpenAiBlock(
@@ -1384,6 +1561,49 @@ function json(value: unknown, status: number, cors: HeadersInit): Response {
   });
 }
 
+function rateLimitResponse(request: Request, path: string, cors: HeadersInit): Response | null {
+  if (request.method !== "POST") return null;
+
+  const limit = path === "/tts" ? 60 : path === "/chat" || path === "/transcribe" || path === "/transcribe-token" ? 30 : 0;
+  if (!limit) return null;
+
+  const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "local";
+  const key = `${path}:${ip}`;
+  const now = Date.now();
+  const current = rateLimitBuckets.get(key);
+  if (!current || now - current.windowStart >= 60_000) {
+    rateLimitBuckets.set(key, { windowStart: now, count: 1 });
+    return null;
+  }
+
+  current.count += 1;
+  if (current.count > limit) {
+    return json({ error: "Rate limit exceeded. Please wait a minute and try again." }, 429, cors);
+  }
+
+  return null;
+}
+
+function requestTooLarge(request: Request, maxBytes: number): boolean {
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  return Number.isFinite(contentLength) && contentLength > maxBytes;
+}
+
+function validateChatRequest(body: ChatRequest): string | null {
+  const screenshots = body.screenshots || [];
+  if (screenshots.length > MAX_SCREENSHOTS) {
+    return `Too many screenshots. Send at most ${MAX_SCREENSHOTS}.`;
+  }
+
+  for (const screenshot of screenshots) {
+    if (typeof screenshot.base64 !== "string" || screenshot.base64.length > MAX_SCREENSHOT_BASE64_BYTES) {
+      return "Screenshot payload is too large. Compress or resize the image before sending.";
+    }
+  }
+
+  return null;
+}
+
 function isMock(env: WorkerEnv): boolean {
   return env.MOCK_MODE !== "false";
 }
@@ -1394,8 +1614,9 @@ function corsHeaders(request: Request, env: WorkerEnv): HeadersInit {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-  const allowed = Array.from(new Set([...configuredAllowed, ...defaultAllowedOrigins]));
-  const allowOrigin = isAllowedLocalOrigin(origin, allowed) ? origin : allowed[0] || "http://127.0.0.1:5173";
+  const nativeOrigins = ["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"];
+  const allowed = configuredAllowed.length ? Array.from(new Set([...configuredAllowed, ...nativeOrigins])) : defaultAllowedOrigins;
+  const allowOrigin = isAllowedLocalOrigin(origin, allowed, configuredAllowed.length > 0) ? origin : allowed[0] || "http://127.0.0.1:5173";
 
   return {
     "Access-Control-Allow-Origin": allowOrigin,
@@ -1406,9 +1627,10 @@ function corsHeaders(request: Request, env: WorkerEnv): HeadersInit {
   };
 }
 
-function isAllowedLocalOrigin(origin: string, allowed: string[]): boolean {
+function isAllowedLocalOrigin(origin: string, allowed: string[], strict = false): boolean {
   if (!origin) return false;
   if (allowed.includes(origin)) return true;
+  if (strict) return false;
 
   try {
     const url = new URL(origin);
