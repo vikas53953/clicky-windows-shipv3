@@ -1,8 +1,8 @@
 MOCK_MODE=false
 LLM_PROVIDER=opencode
-OPENCODE_MODEL=minimax-m2.7
+OPENCODE_MODEL=gemini-3-flash
 OPENCODE_API_MODE=chat_completions
-OPENCODE_BASE_URL=https://opencode.ai/zen/go/v1
+OPENCODE_BASE_URL=https://opencode.ai/zen/v1
 OPENCODE_API_KEY=replace-with-opencode-api-key
 ELEVENLABS_API_KEY=replace-with-elevenlabs-api-key
 ELEVENLABS_VOICE_ID=

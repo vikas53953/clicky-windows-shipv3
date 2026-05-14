@@ -55,10 +55,18 @@ export function normalizedConversationMessages(body: ChatRequest): ConversationM
 }
 
 export function supportsImageInput(provider: string, model: string): boolean {
-  const requested = `${provider} ${model}`.toLowerCase();
-  if (requested.includes("minimax") || requested.includes("m2.7") || requested.includes("m2-7")) return false;
-  if (requested.includes("kimi") || requested.includes("moonshot")) return false;
-  return /gpt|claude|vision|vl|multimodal|gemini|qwen-vl|pixtral/.test(requested);
+  const id = `${provider} ${model}`.toLowerCase();
+  const textOnly = ["minimax", "m2.7", "m2-7", "m2.1", "deepseek", "ring", "trinity"];
+  if (textOnly.some((term) => id.includes(term))) return false;
+
+  const vision = ["gemini", "gpt", "claude", "vision", "vl", "multimodal", "pixtral", "kimi", "moonshot", "qwen", "glm", "nemotron", "gemma"];
+  return vision.some((term) => id.includes(term));
+}
+
+export function screenshotLabel(screenshot: NonNullable<ChatRequest["screenshots"]>[number], index: number, total: number): string {
+  const focus = index === 0 ? " - cursor is on this screen (primary focus)" : "";
+  const dimensions = screenshot.width && screenshot.height ? ` (image dimensions: ${screenshot.width}x${screenshot.height} pixels)` : "";
+  return `screen ${index + 1} of ${total}${focus}${dimensions}`;
 }
 
 export function normalizePlainText(value: string): string {

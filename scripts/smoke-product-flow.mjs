@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+
 const workerUrl = (process.env.CLICKY_WORKER_URL ?? "http://127.0.0.1:8789").replace(/\/$/, "");
-const model = process.env.CLICKY_SMOKE_MODEL ?? "minimax-m2.7";
+const model = process.env.CLICKY_SMOKE_MODEL ?? "gemini-3-flash";
 const provider = process.env.CLICKY_SMOKE_PROVIDER ?? "opencode";
 
 const checks = [];
@@ -40,7 +42,9 @@ async function main() {
     screenshots: [
       {
         mediaType: "image/png",
-        base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        base64: readFileSync("docs/phase2-browser-smoke.png").toString("base64"),
+        width: 1168,
+        height: 796
       }
     ]
   });

@@ -1,5 +1,5 @@
 const workerUrl = (process.env.CLICKY_WORKER_URL || "http://127.0.0.1:8789").replace(/\/$/, "");
-const model = process.env.CLICKY_MODEL || "minimax-m2.7";
+const model = process.env.CLICKY_MODEL || "gemini-3-flash";
 const startedAt = performance.now();
 
 const response = await fetch(`${workerUrl}/chat`, {

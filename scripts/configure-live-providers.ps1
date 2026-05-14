@@ -16,7 +16,7 @@ function Read-SecretText([string]$Prompt) {
 $openCodeKey = Read-SecretText "Paste OpenCode API key"
 $elevenLabsKey = Read-SecretText "Paste ElevenLabs API key"
 $voiceId = Read-Host "ElevenLabs voice ID (optional, press Enter to auto-pick first voice)"
-$model = Read-Host "OpenCode model (default: minimax-m2.7)"
+$model = Read-Host "OpenCode model (default: gemini-3-flash)"
 $apiMode = Read-Host "OpenCode API mode: responses or chat_completions (default: chat_completions)"
 $baseUrl = Read-Host "OpenCode base URL (default: https://opencode.ai/zen/v1)"
 
@@ -29,7 +29,7 @@ if ([string]::IsNullOrWhiteSpace($elevenLabsKey)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($model)) {
-  $model = "minimax-m2.7"
+  $model = "gemini-3-flash"
 }
 
 if ([string]::IsNullOrWhiteSpace($apiMode)) {

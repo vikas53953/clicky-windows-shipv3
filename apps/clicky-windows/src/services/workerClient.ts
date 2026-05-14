@@ -70,7 +70,7 @@ export const MAX_CHAT_SCREENSHOTS = 2;
 
 export const defaultSettings: ClickySettings = {
   workerUrl: import.meta.env.VITE_CLICKY_WORKER_URL ?? "http://127.0.0.1:8789",
-  model: "minimax-m2.7",
+  model: "gemini-3-flash",
   provider: "opencode",
   accentColor: "#3b82f6",
   avatar: "classic",
@@ -79,14 +79,16 @@ export const defaultSettings: ClickySettings = {
   shortcut: "Ctrl+Alt+Space",
   showClicky: true,
   debugMode: false,
-  mockMode: (import.meta.env.VITE_CLICKY_MOCK_MODE ?? "true") === "true"
+  mockMode: (import.meta.env.VITE_CLICKY_MOCK_MODE ?? "false") === "true"
 };
 
 export function modelSupportsScreenImages(settings: Pick<ClickySettings, "provider" | "model">): boolean {
-  const requested = `${settings.provider} ${settings.model}`.toLowerCase();
-  if (requested.includes("minimax") || requested.includes("m2.7") || requested.includes("m2-7")) return false;
-  if (requested.includes("kimi") || requested.includes("moonshot")) return false;
-  return /gpt|claude|vision|vl|multimodal|gemini|qwen-vl|pixtral/.test(requested);
+  const id = `${settings.provider} ${settings.model}`.toLowerCase();
+  const textOnly = ["minimax", "m2.7", "m2-7", "m2.1", "deepseek", "ring", "trinity"];
+  if (textOnly.some((term) => id.includes(term))) return false;
+
+  const vision = ["gemini", "gpt", "claude", "vision", "vl", "multimodal", "pixtral", "kimi", "moonshot", "qwen", "glm", "nemotron", "gemma"];
+  return vision.some((term) => id.includes(term));
 }
 
 export function prepareScreenshotsForChat(settings: Pick<ClickySettings, "provider" | "model">, screenshots: ScreenContext[]): ScreenContext[] {

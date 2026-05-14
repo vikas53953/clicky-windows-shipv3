@@ -3,7 +3,7 @@ import { writeFile } from "node:fs/promises";
 const workerUrl = (process.env.CLICKY_WORKER_URL ?? "http://127.0.0.1:8789").replace(/\/$/, "");
 const ttsOutputPath = process.env.CLICKY_TTS_OUTPUT ?? "docs/live-tts-smoke.mp3";
 const voiceIdOverride = process.env.CLICKY_ELEVENLABS_VOICE_ID ?? "";
-const llmLabel = process.env.CLICKY_LLM_LABEL ?? "OpenCode/MiniMax";
+const llmLabel = process.env.CLICKY_LLM_LABEL ?? "OpenCode/Gemini";
 
 async function main() {
   const health = await getJson("/health");
@@ -13,7 +13,7 @@ async function main() {
 
   const chat = await post("/chat", {
     provider: "opencode",
-    transcript: "Reply in one short sentence: Clicky live OpenCode MiniMax path is working.",
+    transcript: "Reply in one short sentence: Clicky live OpenCode Gemini path is working.",
     screenshots: []
   });
 

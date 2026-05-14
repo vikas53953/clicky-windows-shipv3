@@ -1,6 +1,6 @@
 import type { ChatRequest, WorkerEnv } from "../types";
 import { normalizeOpenAiStream } from "../utils/sse";
-import { maxOutputTokensFor, normalizedConversationMessages, supportsImageInput, systemPromptFor } from "../utils/text";
+import { maxOutputTokensFor, normalizedConversationMessages, screenshotLabel, supportsImageInput, systemPromptFor } from "../utils/text";
 
 export async function openAiChat(body: ChatRequest, env: WorkerEnv, cors: HeadersInit): Promise<Response> {
   if (!env.OPENAI_API_KEY) {
@@ -69,7 +69,13 @@ export function buildOpenAiInput(body: ChatRequest, provider = body.provider || 
   ];
 
   if (allowImages) {
-    for (const screenshot of body.screenshots || []) {
+    const screenshots = body.screenshots || [];
+    for (let i = 0; i < screenshots.length; i += 1) {
+      const screenshot = screenshots[i];
+      content.push({
+        type: "input_text",
+        text: screenshotLabel(screenshot, i, screenshots.length)
+      });
       content.push({
         type: "input_image",
         image_url: `data:${screenshot.mediaType};base64,${screenshot.base64}`

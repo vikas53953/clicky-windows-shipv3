@@ -508,6 +508,105 @@ describe("Clicky Worker", () => {
     }
   });
 
+  it("sends labeled image payloads to OpenCode vision models", async () => {
+    const originalFetch = globalThis.fetch;
+    let upstreamBody = "";
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://opencode.ai/zen/v1/chat/completions")) {
+        upstreamBody = String(init?.body || "");
+        return new Response('data: {"choices":[{"delta":{"content":"I can see the screen."}}]}\n\ndata: [DONE]\n\n', {
+          status: 200,
+          headers: { "content-type": "text/event-stream" }
+        });
+      }
+
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      const response = await handleRequest(
+        new Request("http://worker.local/chat", {
+          method: "POST",
+          headers: {
+            Origin: "http://127.0.0.1:5174",
+            "Content-Type": "application/json",
+            "cf-connecting-ip": "opencode-vision-test"
+          },
+          body: JSON.stringify({
+            provider: "opencode",
+            model: "kimi-k2.5",
+            responseMode: "screen_guidance",
+            transcript: "What do you see?",
+            screenshots: [{ mediaType: "image/png", base64: "abc123", width: 1280, height: 720 }]
+          })
+        }),
+        { ...env, MOCK_MODE: "false", OPENCODE_API_KEY: "test-key", OPENCODE_MODEL: "" }
+      );
+
+      expect(response.status).toBe(200);
+      expect(upstreamBody).toContain("image_url");
+      expect(upstreamBody).toContain("screen 1 of 1");
+      expect(upstreamBody).toContain("cursor is on this screen");
+      expect(upstreamBody).toContain("image dimensions: 1280x720 pixels");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("routes Gemini through the OpenCode Google model endpoint with screenshot labels", async () => {
+    const originalFetch = globalThis.fetch;
+    let upstreamUrl = "";
+    let upstreamBody = "";
+    let apiKeyHeader = "";
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://opencode.ai/zen/v1/models/gemini-3-flash:streamGenerateContent")) {
+        upstreamUrl = url;
+        upstreamBody = String(init?.body || "");
+        apiKeyHeader = String((init?.headers as Record<string, string>)?.["x-goog-api-key"] || "");
+        return new Response('data: {"candidates":[{"content":{"role":"model","parts":[{"text":"I can see Clicky."}]}}]}\n\n', {
+          status: 200,
+          headers: { "content-type": "text/event-stream" }
+        });
+      }
+
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      const response = await handleRequest(
+        new Request("http://worker.local/chat", {
+          method: "POST",
+          headers: {
+            Origin: "http://127.0.0.1:5174",
+            "Content-Type": "application/json",
+            "cf-connecting-ip": "gemini-vision-test"
+          },
+          body: JSON.stringify({
+            provider: "opencode",
+            model: "gemini-3-flash",
+            responseMode: "screen_guidance",
+            transcript: "What do you see?",
+            screenshots: [{ mediaType: "image/png", base64: "abc123", width: 1280, height: 720 }]
+          })
+        }),
+        { ...env, MOCK_MODE: "false", OPENCODE_API_KEY: "test-key", OPENCODE_MODEL: "" }
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain("I can see Clicky.");
+      expect(upstreamUrl).toContain("/models/gemini-3-flash:streamGenerateContent");
+      expect(apiKeyHeader).toBe("test-key");
+      expect(upstreamBody).toContain("inlineData");
+      expect(upstreamBody).toContain("screen 1 of 1");
+      expect(upstreamBody).toContain("cursor is on this screen");
+      expect(upstreamBody).toContain("image dimensions: 1280x720 pixels");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("uses the resolved OpenCode model when deciding whether screenshots are allowed", async () => {
     const originalFetch = globalThis.fetch;
     let upstreamBody = "";
@@ -588,6 +687,52 @@ describe("Clicky Worker", () => {
       expect(response.status).toBe(200);
       expect(upstreamBody).not.toContain("input_image");
       expect(upstreamBody).toContain("cannot receive screenshot images");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("labels screenshots on the OpenAI responses route", async () => {
+    const originalFetch = globalThis.fetch;
+    let upstreamBody = "";
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://api.openai.com/v1/responses")) {
+        upstreamBody = String(init?.body || "");
+        return new Response('data: {"type":"response.output_text.delta","delta":"I can see it."}\n\ndata: [DONE]\n\n', {
+          status: 200,
+          headers: { "content-type": "text/event-stream" }
+        });
+      }
+
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      const response = await handleRequest(
+        new Request("http://worker.local/chat", {
+          method: "POST",
+          headers: {
+            Origin: "http://127.0.0.1:5174",
+            "Content-Type": "application/json",
+            "cf-connecting-ip": "openai-vision-test"
+          },
+          body: JSON.stringify({
+            provider: "openai",
+            model: "gpt-5",
+            responseMode: "screen_guidance",
+            transcript: "What do you see?",
+            screenshots: [{ mediaType: "image/png", base64: "abc123", width: 1024, height: 768 }]
+          })
+        }),
+        { ...env, MOCK_MODE: "false", LLM_PROVIDER: "openai", OPENAI_API_KEY: "test-key" }
+      );
+
+      expect(response.status).toBe(200);
+      expect(upstreamBody).toContain("input_image");
+      expect(upstreamBody).toContain("screen 1 of 1");
+      expect(upstreamBody).toContain("cursor is on this screen");
+      expect(upstreamBody).toContain("image dimensions: 1024x768 pixels");
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -752,7 +897,7 @@ describe("Clicky Worker", () => {
     expect(await response.json()).toEqual({ error: "ElevenLabs speech-to-text is not configured." });
   });
 
-  it("normalizes Anthropic SSE into Clicky's chunk stream format", async () => {
+  it("normalizes Anthropic SSE into Clicky's chunk stream format and labels screenshots", async () => {
     const originalFetch = globalThis.fetch;
     let upstreamBody = "";
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -784,7 +929,8 @@ describe("Clicky Worker", () => {
           body: JSON.stringify({
             provider: "anthropic",
             transcript: "continue",
-            messages: [{ role: "user", content: "Remember Delhi." }]
+            messages: [{ role: "user", content: "Remember Delhi." }],
+            screenshots: [{ mediaType: "image/png", base64: "abc123", width: 800, height: 600 }]
           })
         }),
         { ...env, MOCK_MODE: "false", LLM_PROVIDER: "anthropic", ANTHROPIC_API_KEY: "test-key" }
@@ -796,6 +942,9 @@ describe("Clicky Worker", () => {
       expect(text).toContain('data: {"type":"chunk","text":"Vikas"}');
       expect(text).toContain("data: [DONE]");
       expect(upstreamBody).toContain("Remember Delhi.");
+      expect(upstreamBody).toContain("screen 1 of 1");
+      expect(upstreamBody).toContain("cursor is on this screen");
+      expect(upstreamBody).toContain("image dimensions: 800x600 pixels");
     } finally {
       globalThis.fetch = originalFetch;
     }

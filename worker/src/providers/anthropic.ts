@@ -1,6 +1,6 @@
 import type { ChatRequest, WorkerEnv } from "../types";
 import { normalizeAnthropicStream } from "../utils/sse";
-import { maxOutputTokensFor, normalizedConversationMessages, systemPromptFor } from "../utils/text";
+import { maxOutputTokensFor, normalizedConversationMessages, screenshotLabel, systemPromptFor } from "../utils/text";
 
 export async function anthropicChat(body: ChatRequest, env: WorkerEnv, cors: HeadersInit): Promise<Response> {
   if (!env.ANTHROPIC_API_KEY) {
@@ -51,7 +51,13 @@ function buildAnthropicMessages(body: ChatRequest): unknown[] {
     }
   ];
 
-  for (const screenshot of body.screenshots || []) {
+  const screenshots = body.screenshots || [];
+  for (let i = 0; i < screenshots.length; i += 1) {
+    const screenshot = screenshots[i];
+    content.push({
+      type: "text",
+      text: screenshotLabel(screenshot, i, screenshots.length)
+    });
     content.push({
       type: "image",
       source: {

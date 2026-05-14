@@ -3,10 +3,12 @@ import { defaultSettings } from "./workerClient";
 import { migrateStoredSettings } from "./settingsMigration";
 
 describe("migrateStoredSettings", () => {
-  it("moves persisted Kimi settings to the current MiniMax default", () => {
+  it("moves persisted old defaults to the current Gemini vision default", () => {
     const settings = migrateStoredSettings({ model: "kimi-k2.5", mockMode: false }, false);
-    expect(settings.model).toBe("minimax-m2.7");
+    expect(settings.model).toBe("gemini-3-flash");
     expect(settings.mockMode).toBe(false);
+
+    expect(migrateStoredSettings({ model: "minimax-m2.7", mockMode: false }, false).model).toBe("gemini-3-flash");
   });
 
   it("keeps explicit non-legacy model choices", () => {

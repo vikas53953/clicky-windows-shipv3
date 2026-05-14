@@ -89,7 +89,14 @@ describe("workerClient", () => {
 
   it("detects when the active model cannot receive screenshots", () => {
     expect(modelSupportsScreenImages({ provider: "opencode", model: "minimax-m2.7" })).toBe(false);
+    expect(modelSupportsScreenImages({ provider: "opencode", model: "kimi-k2.5" })).toBe(true);
+    expect(modelSupportsScreenImages({ provider: "opencode", model: "gemini-3-flash" })).toBe(true);
     expect(modelSupportsScreenImages({ provider: "anthropic", model: "claude-sonnet-4-5" })).toBe(true);
+  });
+
+  it("defaults to live Gemini vision instead of mock MiniMax", () => {
+    expect(defaultSettings.model).toBe("gemini-3-flash");
+    expect(defaultSettings.mockMode).toBe(false);
   });
 
   it("does not send screenshots to text-only models", () => {

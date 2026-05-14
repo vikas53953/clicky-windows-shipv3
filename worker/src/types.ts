@@ -28,6 +28,16 @@ export interface ChatRequest {
   screenshots?: Array<{
     mediaType: "image/png" | "image/jpeg" | string;
     base64: string;
+    width?: number;
+    height?: number;
+    screen?: number;
+    monitorX?: number;
+    monitorY?: number;
+    monitorWidth?: number;
+    monitorHeight?: number;
+    scaleFactor?: number;
+    cursorX?: number;
+    cursorY?: number;
   }>;
   system?: string;
 }
