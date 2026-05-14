@@ -130,6 +130,26 @@ export function useNativeOverlay({
   }, [nativeRuntime]);
 
   useEffect(() => {
+    if (!nativeRuntime) return;
+
+    let cancelled = false;
+    const refreshCursor = () => {
+      void getNativeCursorContext().then((context) => {
+        if (cancelled || !context) return;
+        setNativeCursor(context);
+        setCursor({ x: context.x, y: context.y });
+      });
+    };
+
+    refreshCursor();
+    const timer = window.setInterval(refreshCursor, 100);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [nativeRuntime]);
+
+  useEffect(() => {
     if (isOverlayWindow) return;
     const overlayStatus = session.status === "idle" ? "listening" : session.status;
     const currentCursor = nativeCursor ?? nativeDiagnostics?.cursor ?? null;

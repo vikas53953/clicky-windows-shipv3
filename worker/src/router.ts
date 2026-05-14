@@ -90,10 +90,16 @@ async function chat(request: Request, env: WorkerEnv, cors: HeadersInit): Promis
   const body = (await request.json()) as ChatRequest;
   const validation = validateChatRequest(body);
   if (validation) return json({ error: validation }, 413, cors);
+  const safetyAnswer = directSafetyAnswer(body);
+  if (safetyAnswer) return sse([safetyAnswer], cors);
+
+  const provider = resolveLlmProvider(body, env);
+  if (!isMock(env) && provider === "opencode" && isGeminiOpenCodeRequest(body, env)) {
+    return openCodeChat(body, env, cors);
+  }
 
   const tools = await resolveInternetTools(body.transcript || "", env, body.timezone);
   const bodyWithTools = appendToolContext(body, tools);
-  const provider = resolveLlmProvider(body, env);
   const directToolAnswer = directAnswerFromTools(body, tools);
   const directTimeAnswer = directTimeAnswerFromTools(body, tools);
 
@@ -125,6 +131,15 @@ async function chat(request: Request, env: WorkerEnv, cors: HeadersInit): Promis
   }
 
   return anthropicChat(bodyWithTools, env, cors);
+}
+
+function directSafetyAnswer(body: ChatRequest): string {
+  const text = (body.transcript || "").toLowerCase();
+  const asksForAction = /\b(click|press|tap|run|execute|delete|remove|wipe|erase|format|submit|confirm)\b/.test(text);
+  const destructive = /\b(delete all|delete every|remove all|wipe|erase|format|all files|factory reset|destroy)\b/.test(text);
+  if (!asksForAction || !destructive) return "";
+
+  return "i can't do or guide a destructive action like that. pause and back up anything important first, then use a safer review step where you choose exactly what should be removed. [POINT:none]";
 }
 
 async function resolveToolsRoute(request: Request, env: WorkerEnv, cors: HeadersInit): Promise<Response> {
@@ -212,6 +227,11 @@ function resolveLlmProvider(body: ChatRequest, env: WorkerEnv): "anthropic" | "o
   if (requested === "openai") return "openai";
   if (requested === "anthropic") return "anthropic";
   return "anthropic";
+}
+
+function isGeminiOpenCodeRequest(body: ChatRequest, env: WorkerEnv): boolean {
+  const model = env.OPENCODE_MODEL?.trim() || body.model?.trim() || "gemini-3-flash";
+  return model.toLowerCase().startsWith("gemini-");
 }
 
 function rateLimitResponse(request: Request, path: string, cors: HeadersInit): Response | null {

@@ -650,6 +650,134 @@ describe("Clicky Worker", () => {
     }
   });
 
+  it("lets Gemini decide to call web_search for current Codex product questions", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchEvents: string[] = [];
+    const geminiBodies: string[] = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://opencode.ai/zen/v1/models/gemini-3-flash:streamGenerateContent")) {
+        fetchEvents.push("gemini");
+        const body = String(init?.body || "");
+        geminiBodies.push(body);
+        if (geminiBodies.length === 1) {
+          return new Response(
+            'data: {"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"web_search","args":{"query":"OpenAI Codex mobile app iOS launch 2026"}},"thoughtSignature":"test-thought-signature"}]}}]}\n\n',
+            { status: 200, headers: { "content-type": "text/event-stream" } }
+          );
+        }
+
+        return new Response(
+          'data: {"candidates":[{"content":{"role":"model","parts":[{"text":"openai has launched codex on ios according to the current search result. [POINT:none]"}]}}]}\n\n',
+          { status: 200, headers: { "content-type": "text/event-stream" } }
+        );
+      }
+
+      if (url.startsWith("https://api.duckduckgo.com/")) {
+        fetchEvents.push("duckduckgo-json");
+        return new Response(JSON.stringify({ Heading: "", Answer: "", AbstractText: "" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      if (url.startsWith("https://html.duckduckgo.com/html/")) {
+        fetchEvents.push("duckduckgo-html");
+        return new Response(
+          '<html><body><a class="result__a" href="https://openai.com/codex">OpenAI Codex for iOS</a><a class="result__snippet">OpenAI announced Codex mobile access for iOS users.</a></body></html>',
+          { status: 200, headers: { "content-type": "text/html" } }
+        );
+      }
+
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      const response = await handleRequest(
+        new Request("http://worker.local/chat", {
+          method: "POST",
+          headers: {
+            Origin: "http://127.0.0.1:5174",
+            "Content-Type": "application/json",
+            "cf-connecting-ip": "gemini-tool-test"
+          },
+          body: JSON.stringify({
+            provider: "opencode",
+            model: "gemini-3-flash",
+            responseMode: "quick",
+            transcript: "has OpenAI launched a Codex mobile app for iOS?"
+          })
+        }),
+        { ...env, MOCK_MODE: "false", OPENCODE_API_KEY: "test-key", OPENCODE_MODEL: "" }
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain("launched codex on ios");
+      expect(fetchEvents.slice(0, 2)).toEqual(["gemini", "duckduckgo-json"]);
+      expect(fetchEvents).toContain("duckduckgo-html");
+      expect(fetchEvents.filter((event) => event === "gemini")).toHaveLength(2);
+      expect(geminiBodies[0]).toContain("functionDeclarations");
+      expect(geminiBodies[0]).toContain("functionCallingConfig");
+      expect(geminiBodies[0]).toContain("do not answer current facts from memory");
+      expect(geminiBodies[1]).toContain("test-thought-signature");
+      expect(geminiBodies[1]).toContain("functionResponse");
+      expect(geminiBodies[1]).toContain("OpenAI Codex for iOS");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("does not pre-search or force a Gemini tool call for simple math", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchEvents: string[] = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://opencode.ai/zen/v1/models/gemini-3-flash:streamGenerateContent")) {
+        fetchEvents.push("gemini");
+        expect(String(init?.body || "")).toContain("functionDeclarations");
+        expect(String(init?.body || "")).toContain("functionCallingConfig");
+        return new Response('data: {"candidates":[{"content":{"parts":[{"text":"345 [POINT:none]"}]}}]}\n\n', {
+          status: 200,
+          headers: { "content-type": "text/event-stream" }
+        });
+      }
+
+      if (url.includes("duckduckgo.com")) {
+        fetchEvents.push("duckduckgo");
+      }
+
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      const response = await handleRequest(
+        new Request("http://worker.local/chat", {
+          method: "POST",
+          headers: {
+            Origin: "http://127.0.0.1:5174",
+            "Content-Type": "application/json",
+            "cf-connecting-ip": "gemini-math-test"
+          },
+          body: JSON.stringify({
+            provider: "opencode",
+            model: "gemini-3-flash",
+            responseMode: "quick",
+            transcript: "what is 15 times 23?"
+          })
+        }),
+        { ...env, MOCK_MODE: "false", OPENCODE_API_KEY: "test-key", OPENCODE_MODEL: "" }
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain("345");
+      expect(fetchEvents).toEqual(["gemini"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("uses the resolved OpenCode model when deciding whether screenshots are allowed", async () => {
     const originalFetch = globalThis.fetch;
     let upstreamBody = "";

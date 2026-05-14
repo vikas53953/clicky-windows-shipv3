@@ -58,5 +58,6 @@ export interface InternetToolResult {
   label?: string;
   summary?: string;
   source?: string;
+  directAnswer?: string;
   error?: string;
 }

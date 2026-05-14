@@ -3,6 +3,9 @@ import { normalizeChatCompletionsStream, normalizeOpenAiStream } from "../utils/
 import { maxOutputTokensFor, normalizedConversationMessages, screenshotLabel, supportsImageInput, systemPromptFor } from "../utils/text";
 import { trimTrailingSlash } from "../utils/http";
 import { buildOpenAiInput } from "./openai";
+import { resolveSearchTool } from "../tools/search";
+import { resolveTimeTool, timezoneHint } from "../tools/time";
+import { resolveWeatherTools } from "../tools/weather";
 
 export async function openCodeChat(body: ChatRequest, env: WorkerEnv, cors: HeadersInit): Promise<Response> {
   if (!env.OPENCODE_API_KEY) {
@@ -57,25 +60,8 @@ export async function openCodeChat(body: ChatRequest, env: WorkerEnv, cors: Head
 }
 
 async function openCodeGemini(body: ChatRequest, env: WorkerEnv, cors: HeadersInit, baseUrl: string, model: string): Promise<Response> {
-  const upstream = await fetch(`${baseUrl}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-goog-api-key": env.OPENCODE_API_KEY || ""
-    },
-    body: JSON.stringify({
-      systemInstruction: {
-        parts: [{ text: systemPromptFor(body) }]
-      },
-      contents: buildGeminiContents(body),
-      generationConfig: {
-        maxOutputTokens: Math.max(maxOutputTokensFor(body), 512),
-        thinkingConfig: {
-          thinkingLevel: thinkingLevelFor(body)
-        }
-      }
-    })
-  });
+  const startedAt = Date.now();
+  const upstream = await fetchGeminiStream(baseUrl, model, env, buildGeminiRequest(body, env, true));
 
   if (!upstream.body || !upstream.ok) {
     return new Response(upstream.body, {
@@ -87,7 +73,59 @@ async function openCodeGemini(body: ChatRequest, env: WorkerEnv, cors: HeadersIn
     });
   }
 
-  return normalizeGeminiStream(upstream.body, cors);
+  return streamGeminiWithTools(upstream.body, body, env, cors, baseUrl, model, startedAt);
+}
+
+async function fetchGeminiStream(baseUrl: string, model: string, env: WorkerEnv, payload: unknown): Promise<Response> {
+  return fetch(`${baseUrl}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-goog-api-key": env.OPENCODE_API_KEY || ""
+    },
+    body: JSON.stringify(payload)
+  });
+}
+
+function buildGeminiRequest(
+  body: ChatRequest,
+  env: WorkerEnv,
+  includeTools: boolean,
+  followUpParts: Array<GeminiFunctionCallPart | { functionResponse?: unknown }> = [],
+  toolMode: "AUTO" | "NONE" = "AUTO"
+): unknown {
+  const contents = buildGeminiContents(body);
+  if (followUpParts.length) {
+    const functionCalls = followUpParts.filter((part): part is GeminiFunctionCallPart => Boolean((part as GeminiFunctionCallPart).functionCall));
+    const functionResponses = followUpParts.filter((part): part is { functionResponse: unknown } => "functionResponse" in part && Boolean(part.functionResponse));
+    if (functionCalls.length) contents.push({ role: "model", parts: functionCalls });
+    if (functionResponses.length) {
+      contents.push({
+        role: "user",
+        parts: [
+          ...functionResponses,
+          {
+            text:
+              "answer the user's original question now. use only the tool result above for current facts. if the result is incomplete or uncertain, say what the tool found instead of using older memory. keep it short and append [POINT:none]."
+          }
+        ]
+      });
+    }
+  }
+
+  return {
+    systemInstruction: {
+      parts: [{ text: geminiSystemPromptFor(body) }]
+    },
+    contents,
+    ...(includeTools ? { tools: geminiToolDeclarations(), toolConfig: geminiToolConfig(toolMode) } : {}),
+    generationConfig: {
+      maxOutputTokens: Math.max(maxOutputTokensFor(body), 512),
+      thinkingConfig: {
+        thinkingLevel: thinkingLevelFor(body)
+      }
+    }
+  };
 }
 
 async function openCodeChatCompletions(
@@ -155,12 +193,82 @@ function thinkingLevelFor(_body: ChatRequest): "minimal" {
   return "minimal";
 }
 
+function geminiSystemPromptFor(body: ChatRequest): string {
+  return `${systemPromptFor(body)}
+
+tool use:
+- you have web_search, get_current_time, and get_weather when the user asks for facts that may have changed, live data, current versions, launches, sports, weather, time, prices, or news.
+- for those current facts, call the right tool first. do not answer current facts from memory.
+- after a tool result, base current facts only on the tool result. if the tool result is incomplete, say what it found instead of filling gaps from older memory.
+- do not use web_search for stable knowledge, simple math, casual greetings, or visible-screen questions unless the user asks for current outside information too.
+- after a tool result, answer naturally in clicky's voice and append one [POINT] tag.`;
+}
+
+function geminiToolConfig(mode: "AUTO" | "NONE"): unknown {
+  return {
+    functionCallingConfig: {
+      mode
+    }
+  };
+}
+
+function geminiToolDeclarations(): unknown[] {
+  return [
+    {
+      functionDeclarations: [
+        {
+          name: "web_search",
+          description:
+            "Search the web for current events, news, product launches, sports scores, or any information that may have changed since your training data. Use this whenever you are not certain your information is current.",
+          parameters: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "search query" }
+            },
+            required: ["query"]
+          }
+        },
+        {
+          name: "get_current_time",
+          description: "Get the current date and time in the user's timezone.",
+          parameters: {
+            type: "object",
+            properties: {},
+            required: []
+          }
+        },
+        {
+          name: "get_weather",
+          description: "Get current weather for a location.",
+          parameters: {
+            type: "object",
+            properties: {
+              location: { type: "string", description: "city or place" }
+            },
+            required: ["location"]
+          }
+        }
+      ]
+    }
+  ];
+}
+
 function buildGeminiContents(body: ChatRequest): unknown[] {
-  const contents = normalizedConversationMessages(body).map((message) => ({
+  const conversation = normalizedConversationMessages(body);
+  const contents = conversation.map((message) => ({
     role: message.role === "assistant" ? "model" : "user",
     parts: [{ text: message.content }]
   }));
-  const parts: unknown[] = [{ text: body.transcript || "Help me with what is visible on my screen." }];
+  const recentMemory = conversation
+    .slice(-6)
+    .map((message) => `${message.role}: ${message.content}`)
+    .join("\n");
+  const currentPrompt = `${body.transcript || "Help me with what is visible on my screen."}${
+    recentMemory
+      ? `\n\nrecent conversation, verbatim. use this for recall questions and do not invent details:\n${recentMemory}`
+      : ""
+  }`;
+  const parts: unknown[] = [{ text: currentPrompt }];
   const screenshots = body.screenshots || [];
 
   for (let i = 0; i < screenshots.length; i += 1) {
@@ -177,30 +285,66 @@ function buildGeminiContents(body: ChatRequest): unknown[] {
   return [...contents, { role: "user", parts }];
 }
 
-function normalizeGeminiStream(stream: ReadableStream<Uint8Array>, cors: HeadersInit): Response {
-  const decoder = new TextDecoder();
+function streamGeminiWithTools(
+  stream: ReadableStream<Uint8Array>,
+  body: ChatRequest,
+  env: WorkerEnv,
+  cors: HeadersInit,
+  baseUrl: string,
+  model: string,
+  startedAt: number
+): Response {
   const encoder = new TextEncoder();
-  let buffer = "";
+  const output = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = output.writable.getWriter();
 
-  const normalized = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      buffer += decoder.decode(chunk, { stream: true });
-      const blocks = buffer.split(/\r?\n\r?\n/);
-      buffer = blocks.pop() || "";
-
-      for (const block of blocks) {
-        emitGeminiBlock(block, controller, encoder);
+  void (async () => {
+    try {
+      const first = await forwardGeminiStream(stream, writer, false);
+      console.info(`[clicky-gemini] first_pass_ms=${Date.now() - startedAt} tool_calls=${first.functionCallParts.length}`);
+      if (first.functionCallParts.length) {
+        const toolResults = await executeGeminiFunctionCalls(
+          first.functionCallParts.map((part) => part.functionCall),
+          body,
+          env
+        );
+        const directSpeech = toolResults.map((result) => result.directSpeech).filter(Boolean).join(" ");
+        if (directSpeech) {
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "chunk", text: cleanGeminiSpeech(directSpeech) })}\n\n`));
+          console.info(`[clicky-gemini] tool_direct_answer_ms=${Date.now() - startedAt}`);
+        } else {
+        const followUpParts = [
+          ...first.functionCallParts,
+          ...toolResults.map((result) => ({ functionResponse: result.functionResponse }))
+        ];
+        const followUp = await fetchGeminiStream(baseUrl, model, env, buildGeminiRequest(body, env, true, followUpParts, "NONE"));
+        if (!followUp.ok || !followUp.body) {
+          const upstreamError = await safeUpstreamError(followUp);
+          console.info(`[clicky-gemini] tool_followup_failed status=${followUp.status} error=${upstreamError}`);
+          await writer.write(
+            encoder.encode(`data: ${JSON.stringify({ type: "error", text: `Gemini tool follow-up failed with HTTP ${followUp.status}. ${upstreamError}`.trim() })}\n\n`)
+          );
+        } else {
+          const final = await forwardGeminiStream(followUp.body, writer, false);
+          if (final.text) {
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "chunk", text: cleanGeminiSpeech(final.text) })}\n\n`));
+          }
+          console.info(`[clicky-gemini] tool_followup_done_ms=${Date.now() - startedAt}`);
+        }
+        }
+      } else if (first.text) {
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "chunk", text: cleanGeminiSpeech(first.text) })}\n\n`));
       }
-    },
-    flush(controller) {
-      if (buffer.trim()) {
-        emitGeminiBlock(buffer, controller, encoder);
-      }
-      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      await writer.write(encoder.encode("data: [DONE]\n\n"));
+    } catch {
+      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "error", text: "Gemini stream failed while using tools." })}\n\n`));
+      await writer.write(encoder.encode("data: [DONE]\n\n"));
+    } finally {
+      await writer.close();
     }
-  });
+  })();
 
-  return new Response(stream.pipeThrough(normalized), {
+  return new Response(output.readable, {
     headers: {
       ...cors,
       "content-type": "text/event-stream; charset=utf-8",
@@ -209,29 +353,181 @@ function normalizeGeminiStream(stream: ReadableStream<Uint8Array>, cors: Headers
   });
 }
 
-function emitGeminiBlock(block: string, controller: TransformStreamDefaultController<Uint8Array>, encoder: TextEncoder): void {
+function cleanGeminiSpeech(value: string): string {
+  const point = value.match(/\s*(\[POINT:[^\]]+\])\s*$/i)?.[1] || "";
+  let spoken = point ? value.replace(/\s*\[POINT:[^\]]+\]\s*$/i, "") : value;
+  spoken = spoken
+    .replace(/\s*\(this is a system prompt hidden from the user\)\s*/gi, " ")
+    .replace(/^think\s*\r?\n\s*/i, "")
+    .replace(/\s*let me know if you want[^.?!]*(?:[.?!]|$)/gi, "")
+    .replace(/\s*if you want,?\s+i can[^.?!]*(?:[.?!]|$)/gi, "")
+    .replace(/\s*would you like me to[^.?!]*(?:[.?!]|$)/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  const tag = point || "[POINT:none]";
+  return `${spoken} ${tag}`.trim();
+}
+
+async function safeUpstreamError(response: Response): Promise<string> {
+  try {
+    const text = await response.text();
+    return text.replace(/\s+/g, " ").slice(0, 500);
+  } catch {
+    return "";
+  }
+}
+
+async function forwardGeminiStream(
+  stream: ReadableStream<Uint8Array>,
+  writer: WritableStreamDefaultWriter<Uint8Array>,
+  emitText: boolean
+): Promise<{ text: string; functionCallParts: GeminiFunctionCallPart[] }> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let buffer = "";
+  let text = "";
+  const functionCallParts: GeminiFunctionCallPart[] = [];
+
+  const reader = stream.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = blocks.pop() || "";
+
+    for (const block of blocks) {
+      const event = parseGeminiBlock(block);
+      if (!event) continue;
+      functionCallParts.push(...event.functionCallParts);
+      text += event.text;
+      if (emitText && event.text) {
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "chunk", text: event.text })}\n\n`));
+      }
+    }
+  }
+
+  if (buffer.trim()) {
+    const event = parseGeminiBlock(buffer);
+    if (event) {
+      functionCallParts.push(...event.functionCallParts);
+      text += event.text;
+      if (emitText && event.text) {
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "chunk", text: event.text })}\n\n`));
+      }
+    }
+  }
+
+  return { text, functionCallParts };
+}
+
+function parseGeminiBlock(block: string): { text: string; functionCallParts: GeminiFunctionCallPart[] } | null {
   const data = block
     .split(/\r?\n/)
     .filter((line) => line.startsWith("data:"))
     .map((line) => line.slice(5).trim())
     .join("\n");
-  if (!data || data === "[DONE]") return;
+  if (!data || data === "[DONE]") return null;
 
   try {
     const event = JSON.parse(data) as {
       candidates?: Array<{
         content?: {
-          parts?: Array<{ text?: string }>;
+          parts?: GeminiPart[];
         };
       }>;
     };
-    const text = event.candidates?.flatMap((candidate) => candidate.content?.parts || []).map((part) => part.text || "").join("") || "";
-    if (text) {
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "chunk", text })}\n\n`));
-    }
+    const parts = event.candidates?.flatMap((candidate) => candidate.content?.parts || []) || [];
+    return {
+      text: parts.map((part) => part.text || "").join(""),
+      functionCallParts: parts
+        .filter((part): part is GeminiPart & { functionCall: GeminiFunctionCall } => Boolean(part.functionCall?.name))
+        .map((part) => ({
+          functionCall: part.functionCall,
+          ...(part.thoughtSignature ? { thoughtSignature: part.thoughtSignature } : {}),
+          ...(part.thought_signature ? { thoughtSignature: part.thought_signature } : {})
+        }))
+    };
   } catch {
-    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", text: "Gemini stream returned an invalid event." })}\n\n`));
+    return { text: "", functionCallParts: [] };
   }
+}
+
+interface GeminiPart {
+  text?: string;
+  functionCall?: GeminiFunctionCall;
+  thoughtSignature?: string;
+  thought_signature?: string;
+}
+
+interface GeminiFunctionCallPart {
+  functionCall: GeminiFunctionCall;
+  thoughtSignature?: string;
+}
+
+interface GeminiFunctionCall {
+  name: string;
+  args?: Record<string, unknown>;
+}
+
+interface GeminiToolExecution {
+  functionResponse: unknown;
+  directSpeech?: string;
+}
+
+async function executeGeminiFunctionCalls(functionCalls: GeminiFunctionCall[], body: ChatRequest, env: WorkerEnv): Promise<GeminiToolExecution[]> {
+  const responses: GeminiToolExecution[] = [];
+  for (const call of functionCalls.slice(0, 3)) {
+    const result = await executeGeminiFunctionCall(call, body, env);
+    responses.push({ functionResponse: { name: call.name, response: result.response }, directSpeech: result.directSpeech });
+  }
+  return responses;
+}
+
+async function executeGeminiFunctionCall(call: GeminiFunctionCall, body: ChatRequest, env: WorkerEnv): Promise<{ response: unknown; directSpeech?: string }> {
+  console.info(`[clicky-tool] gemini function_call ${call.name}`);
+  if (call.name === "web_search") {
+    const query = stringArg(call.args, "query") || body.transcript || "";
+    const result = await resolveSearchTool(query);
+    const response = {
+      tool: "web_search",
+      query,
+      status: result.status,
+      source: result.source || "",
+      summary: result.summary || result.error || "No reliable search result was found."
+    };
+    return { response, directSpeech: result.directAnswer };
+  }
+
+  if (call.name === "get_current_time") {
+    const result = resolveTimeTool(timezoneHint(body.timezone, env));
+    return { response: { tool: "get_current_time", status: result.status, source: result.source || "", summary: result.summary || "No time result was found." } };
+  }
+
+  if (call.name === "get_weather") {
+    const location = stringArg(call.args, "location");
+    if (!location) return { response: { tool: "get_weather", status: "needs_location", summary: "The user asked for weather but no location was provided." } };
+    const results = await resolveWeatherTools(`weather in ${location}`, env);
+    return {
+      response: {
+        tool: "get_weather",
+        location,
+        results: results.map((result) => ({
+          status: result.status,
+          source: result.source || "",
+          summary: result.summary || result.error || "No weather result was found."
+        }))
+      }
+    };
+  }
+
+  return { response: { tool: call.name, error: "Unknown Clicky tool." } };
+}
+
+function stringArg(args: Record<string, unknown> | undefined, key: string): string {
+  const value = args?.[key];
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function buildChatCompletionsMessages(body: ChatRequest, provider = body.provider || "", resolvedModel = body.model || ""): unknown[] {

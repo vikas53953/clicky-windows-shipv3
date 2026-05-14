@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cargo = path.join(os.homedir(), ".cargo", "bin", process.platform === "win32" ? "cargo.exe" : "cargo");
+const appUrl = process.env.CLICKY_SMOKE_URL ?? "http://127.0.0.1:5174";
 
 const checks = [
   { name: "Type/lint", command: "npm run lint" },
@@ -42,43 +43,51 @@ const checks = [
 
 const results = [];
 
-for (const check of checks) {
-  console.log(`\n=== ${check.name} ===`);
-  const result = await runCommand(check.command, check.cwd ?? repoRoot);
-  const output = `${result.stdout}\n${result.stderr}`;
+const devServer = await ensureSmokeServer();
 
-  if (result.code === 0) {
-    results.push({ ...check, status: "PASS" });
-    console.log(`PASS: ${check.name}`);
-    continue;
+try {
+  for (const check of checks) {
+    console.log(`\n=== ${check.name} ===`);
+    const result = await runCommand(check.command, check.cwd ?? repoRoot);
+    const output = `${result.stdout}\n${result.stderr}`;
+
+    if (result.code === 0) {
+      results.push({ ...check, status: "PASS" });
+      console.log(`PASS: ${check.name}`);
+      continue;
+    }
+
+    if (check.allowBlocked?.(output)) {
+      results.push({ ...check, status: "BLOCKED_EXTERNAL" });
+      console.log(`BLOCKED_EXTERNAL: ${check.name}`);
+      continue;
+    }
+
+    results.push({ ...check, status: "FAIL", code: result.code });
+    console.log(`FAIL: ${check.name} exited with ${result.code}`);
   }
 
-  if (check.allowBlocked?.(output)) {
-    results.push({ ...check, status: "BLOCKED_EXTERNAL" });
-    console.log(`BLOCKED_EXTERNAL: ${check.name}`);
-    continue;
+  console.log("\n=== Clicky Goal Audit Summary ===");
+  for (const result of results) {
+    console.log(`${result.status.padEnd(16)} ${result.name}`);
   }
 
-  results.push({ ...check, status: "FAIL", code: result.code });
-  console.log(`FAIL: ${check.name} exited with ${result.code}`);
-}
+  const failures = results.filter((result) => result.status === "FAIL");
+  const blocked = results.filter((result) => result.status === "BLOCKED_EXTERNAL");
 
-console.log("\n=== Clicky Goal Audit Summary ===");
-for (const result of results) {
-  console.log(`${result.status.padEnd(16)} ${result.name}`);
-}
-
-const failures = results.filter((result) => result.status === "FAIL");
-const blocked = results.filter((result) => result.status === "BLOCKED_EXTERNAL");
-
-if (failures.length > 0) {
-  console.error("\nAUDIT RESULT: FAIL. Fix failing checks before testing Clicky again.");
-  process.exitCode = 1;
-} else if (blocked.length > 0) {
-  console.error("\nAUDIT RESULT: NOT COMPLETE. Local/native checks pass, but ElevenLabs is externally blocked.");
-  process.exitCode = 2;
-} else {
-  console.log("\nAUDIT RESULT: COMPLETE.");
+  if (failures.length > 0) {
+    console.error("\nAUDIT RESULT: FAIL. Fix failing checks before testing Clicky again.");
+    process.exitCode = 1;
+  } else if (blocked.length > 0) {
+    console.error("\nAUDIT RESULT: NOT COMPLETE. Local/native checks pass, but ElevenLabs is externally blocked.");
+    process.exitCode = 2;
+  } else {
+    console.log("\nAUDIT RESULT: COMPLETE.");
+  }
+} finally {
+  if (devServer.started) {
+    stopProcessTree(devServer.process.pid);
+  }
 }
 
 function runCommand(command, cwd) {
@@ -101,4 +110,61 @@ function runCommand(command, cwd) {
     });
     child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
   });
+}
+
+async function ensureSmokeServer() {
+  if (await serverReachable(appUrl)) {
+    console.log(`Smoke app already reachable at ${appUrl}.`);
+    return { started: false, process: null };
+  }
+
+  console.log(`Starting smoke app server at ${appUrl}...`);
+  const executable = process.platform === "win32" ? process.env.ComSpec || "cmd.exe" : "sh";
+  const args = process.platform === "win32"
+    ? ["/d", "/s", "/c", "npm run dev -w apps/clicky-windows"]
+    : ["-lc", "npm run dev -w apps/clicky-windows"];
+  const child = spawn(executable, args, {
+    cwd: repoRoot,
+    env: process.env,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  child.stdout.on("data", (chunk) => process.stdout.write(chunk));
+  child.stderr.on("data", (chunk) => process.stderr.write(chunk));
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (await serverReachable(appUrl)) {
+      console.log(`Smoke app server is reachable at ${appUrl}.`);
+      return { started: true, process: child };
+    }
+    if (child.exitCode !== null) break;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  stopProcessTree(child.pid);
+  throw new Error(`Smoke app server did not become reachable at ${appUrl}.`);
+}
+
+async function serverReachable(url) {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(1500) });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+function stopProcessTree(pid) {
+  if (!pid) return;
+  if (process.platform === "win32") {
+    spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+  } else {
+    try {
+      process.kill(-pid, "SIGTERM");
+    } catch {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {}
+    }
+  }
 }
