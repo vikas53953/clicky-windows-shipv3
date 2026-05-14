@@ -13,6 +13,15 @@ Also reference:
 https://www.heyclicky.com/
 https://x.com/heyclicky
 
+Required product reference:
+`docs/HEYCLICKY_PRODUCT_REFERENCE.md`
+
+Before any product, architecture, overlay, voice, model, prompt, agent, or UX change:
+1. Read `docs/HEYCLICKY_PRODUCT_REFERENCE.md`.
+2. Treat its gap analysis as acceptance criteria.
+3. Close CRITICAL gaps before polishing lower-priority work.
+4. If implementation differs from that reference, document the reason in `docs/ASSUMPTIONS.md`.
+
 Do not try to compile the macOS Swift/AppKit code on Windows. Treat it as product/spec reference only.
 
 ## First Principle
@@ -34,10 +43,10 @@ Prefer this architecture unless the local SHIPv3 framework clearly requires some
 - Windows shell: system tray app, hidden by default, settings/control panel opened from tray.
 - Global push-to-talk: `Ctrl+Alt` by default, configurable later.
 - Screen capture: Windows-compatible screenshot capture for all monitors.
-- Overlay: transparent, always-on-top, click-through overlay window that renders a blue Clicky buddy, response bubble, spinner/waveform, and pointing animations.
+- Overlay: transparent, always-on-top, click-through full-screen overlay window per monitor. It renders a small blue Clicky buddy, response bubble, spinner/waveform, and pointing animations anywhere on the screen. Do not trap Clicky inside a tiny floating window.
 - Mic/audio capture: reliable Windows microphone capture, ideally Rust backend using `cpal` or a proven equivalent.
 - STT: AssemblyAI streaming via short-lived token from Cloudflare Worker.
-- LLM: Claude vision/chat via Cloudflare Worker.
+- LLM: Claude vision/chat via Cloudflare Worker by default for screen-understanding flows. Do not default a screen-seeing Clicky flow to a non-vision model.
 - TTS: ElevenLabs via Cloudflare Worker.
 - Worker: Cloudflare Worker with `/chat`, `/tts`, and `/transcribe-token`.
 
@@ -66,8 +75,19 @@ The Windows MVP must support:
 - Fresh screen context after explicit user action.
 - Worker-routed Claude response streaming.
 - Hidden `[POINT:x,y:label:screenN]` parsing and pointer animation.
+- Pointing animation must let the triangle fly from cursor/buddy position to the target coordinate with a smooth arc path, not merely pulse in place.
 - Optional ElevenLabs voice output through Worker `/tts`.
 - Settings for Worker URL, model name, voice toggle, shortcut, show Clicky, debug mode, clear conversation, and privacy note.
+
+## Product Voice And Prompt Style
+
+Use the Hey Clicky reference prompt style for spoken answers:
+
+- Write for the ear, not the eye.
+- Prefer short, lowercase, casual, warm sentences.
+- Avoid markdown, visible JSON, long lists, and formal dashboard language in user-facing speech.
+- Do not end by asking yes/no questions by default; plant a useful next-step seed instead.
+- Keep hidden control tags hidden from the user.
 
 ## State Machine
 
