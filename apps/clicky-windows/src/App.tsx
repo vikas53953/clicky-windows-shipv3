@@ -24,7 +24,7 @@ export default function App() {
   });
   const { session, dispatch, conversationMessagesRef, sessionStatusRef, setConversationMessages } = useClickySession();
   const voice = useVoiceCapture();
-  const { cursor, floatingOverlay, publishOverlayState, nativeStatus } = useNativeOverlay({
+  const { cursor, cursorContext, floatingOverlay, publishOverlayState, nativeStatus } = useNativeOverlay({
     isOverlayWindow,
     nativeRuntime,
     settings,
@@ -72,6 +72,9 @@ export default function App() {
         avatar={floatingOverlay.avatar ?? settings.avatar}
         voiceLevel={floatingOverlay.voiceLevel ?? voice.voiceLevel}
         voiceActive={floatingOverlay.voiceActive ?? voice.voiceActive}
+        cursor={floatingOverlay.cursor ?? cursorContext ?? undefined}
+        activePoint={floatingOverlay.activePoint}
+        overlayMonitor={floatingOverlay.overlayMonitor}
       />
     );
   }

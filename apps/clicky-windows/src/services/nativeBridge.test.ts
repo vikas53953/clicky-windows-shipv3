@@ -26,7 +26,7 @@ describe("nativeBridge", () => {
   });
 
   it("describes native runtime state honestly", () => {
-    expect(describeNativeRuntime(diagnostics, true)).toBe("Tauri native, overlay following cursor");
+    expect(describeNativeRuntime(diagnostics, true)).toBe("Tauri native, full-screen overlay active");
     expect(describeNativeRuntime(null, true)).toBe("Tauri native, checking overlay");
     expect(describeNativeRuntime(null, false)).toBe("Browser preview");
   });

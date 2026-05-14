@@ -13,6 +13,7 @@ import {
   type NativeOverlayState
 } from "../services/nativeBridge";
 import { overlayTextForSession } from "../services/overlayText";
+import type { PointTarget } from "../services/pointTags";
 import { defaultSettings, type ClickySettings } from "../services/workerClient";
 
 interface UseNativeOverlayOptions {
@@ -43,6 +44,7 @@ export function useNativeOverlay({
   voiceActive
 }: UseNativeOverlayOptions): {
   cursor: { x: number; y: number };
+  cursorContext: NativeCursorContext | null;
   floatingOverlay: NativeOverlayState;
   publishOverlayState: (state: NativeOverlayState) => void;
   nativeStatus: NativeStatusSummary;
@@ -62,17 +64,21 @@ export function useNativeOverlay({
 
   const publishOverlayState = useCallback(
     (state: NativeOverlayState) => {
+      const activePoint = session.points.at(-1);
+      const currentCursor = nativeCursor ?? nativeDiagnostics?.cursor ?? null;
       const styledState: NativeOverlayState = {
         ...state,
         accentColor: state.accentColor ?? settings.accentColor,
         avatar: state.avatar ?? settings.avatar,
         voiceLevel: state.voiceLevel ?? (state.status === "listening" && voiceActive ? voiceLevel : 0),
-        voiceActive: state.voiceActive ?? (state.status === "listening" && voiceActive)
+        voiceActive: state.voiceActive ?? (state.status === "listening" && voiceActive),
+        cursor: state.cursor ?? currentCursor ?? undefined,
+        activePoint: state.activePoint ?? (state.status === "pointing" ? activePoint : undefined)
       };
       setFloatingOverlay(styledState);
       void setNativeOverlayState(styledState);
     },
-    [settings.accentColor, settings.avatar, voiceActive, voiceLevel]
+    [nativeCursor, nativeDiagnostics?.cursor, session.points, settings.accentColor, settings.avatar, voiceActive, voiceLevel]
   );
 
   useEffect(() => {
@@ -126,6 +132,8 @@ export function useNativeOverlay({
   useEffect(() => {
     if (isOverlayWindow) return;
     const overlayStatus = session.status === "idle" ? "listening" : session.status;
+    const currentCursor = nativeCursor ?? nativeDiagnostics?.cursor ?? null;
+    const activePoint: PointTarget | undefined = session.status === "pointing" ? session.points.at(-1) : undefined;
     const state: NativeOverlayState = {
       status: overlayStatus,
       text: session.status === "idle" || session.status === "listening" ? "" : overlayTextForSession(session),
@@ -133,11 +141,13 @@ export function useNativeOverlay({
       accentColor: settings.accentColor,
       avatar: settings.avatar,
       voiceLevel: overlayStatus === "listening" && voiceActive ? voiceLevel : 0,
-      voiceActive: overlayStatus === "listening" && voiceActive
+      voiceActive: overlayStatus === "listening" && voiceActive,
+      cursor: currentCursor ?? undefined,
+      activePoint
     };
     setFloatingOverlay(state);
     void setNativeOverlayState(state);
-  }, [isOverlayWindow, session, settings.accentColor, settings.avatar, settings.showClicky, voiceActive, voiceLevel]);
+  }, [isOverlayWindow, nativeCursor, nativeDiagnostics?.cursor, session, settings.accentColor, settings.avatar, settings.showClicky, voiceActive, voiceLevel]);
 
   useEffect(() => {
     if (!nativeRuntime || isOverlayWindow) return;
@@ -163,6 +173,7 @@ export function useNativeOverlay({
 
   return {
     cursor,
+    cursorContext: nativeCursor ?? nativeDiagnostics?.cursor ?? null,
     floatingOverlay,
     publishOverlayState,
     nativeStatus

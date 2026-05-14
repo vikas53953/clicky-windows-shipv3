@@ -28,6 +28,7 @@ body.overlay-window {
   min-height: 0;
   overflow: hidden;
   background: transparent;
+  pointer-events: none;
 }
 
 body.overlay-window #root {
@@ -380,22 +381,24 @@ h1 {
 }
 
 .floating-overlay {
-  display: flex;
+  position: relative;
+  display: block;
   width: 100vw;
   height: 100vh;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 7px;
+  overflow: hidden;
+  padding: 0;
   background: transparent;
   pointer-events: none;
 }
 
 .floating-overlay.buddy-only {
-  align-items: center;
+  background: transparent;
 }
 
 .floating-buddy {
-  position: relative;
+  position: absolute;
+  left: 0;
+  top: 0;
   display: inline-flex;
   width: auto;
   min-width: 28px;
@@ -406,8 +409,17 @@ h1 {
   color: var(--clicky-accent);
   filter: drop-shadow(0 0 6px color-mix(in srgb, var(--clicky-accent) 58%, transparent))
     drop-shadow(0 0 14px color-mix(in srgb, var(--clicky-accent) 32%, transparent));
-  animation: clicky-breathe 1900ms ease-in-out infinite;
   transform-origin: 50% 55%;
+  transform:
+    translate(calc(var(--clicky-x, 42px) - 10px), calc(var(--clicky-y, 42px) - 12px))
+    rotate(var(--clicky-rotation, 0deg))
+    scale(var(--clicky-scale, 1));
+  will-change: transform;
+  z-index: 2;
+}
+
+.floating-buddy .clicky-mark {
+  animation: clicky-breathe 1900ms ease-in-out infinite;
 }
 
 .floating-buddy.ready-listening,
@@ -429,7 +441,28 @@ h1 {
   animation: clicky-speaking-bob 720ms ease-in-out infinite;
 }
 
+.floating-buddy.clicky-listening,
+.floating-buddy.clicky-thinking,
+.floating-buddy.clicky-transcribing,
+.floating-buddy.clicky-capturing_screen,
+.floating-buddy.clicky-speaking {
+  animation: none;
+}
+
+.floating-buddy.clicky-thinking .clicky-mark,
+.floating-buddy.clicky-transcribing .clicky-mark,
+.floating-buddy.clicky-capturing_screen .clicky-mark {
+  animation: clicky-thinking-pulse 820ms ease-in-out infinite;
+}
+
+.floating-buddy.clicky-speaking .clicky-mark {
+  animation: clicky-speaking-bob 720ms ease-in-out infinite;
+}
+
 .floating-bubble {
+  position: absolute;
+  left: min(calc(var(--clicky-x, 42px) + 34px), calc(100vw - 318px));
+  top: min(calc(var(--clicky-y, 42px) + 18px), calc(100vh - 190px));
   min-width: 0;
   max-width: min(300px, calc(100vw - 58px));
   max-height: 176px;
@@ -440,6 +473,7 @@ h1 {
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 14px 30px rgba(47, 64, 91, 0.16);
   animation: bubble-in 160ms ease-out;
+  z-index: 1;
 }
 
 .floating-bubble p {
@@ -456,8 +490,8 @@ h1 {
 
 .point-ring {
   position: absolute;
-  left: -12px;
-  top: -10px;
+  left: -13px;
+  top: -9px;
   width: 42px;
   height: 42px;
   border: 3px solid color-mix(in srgb, var(--clicky-accent) 26%, transparent);

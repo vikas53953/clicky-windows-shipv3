@@ -10,15 +10,16 @@ export interface ParsedPointTags {
   points: PointTarget[];
 }
 
-const pointTagPattern = /\[POINT:([^,\]]+),([^:\]]+):([^:\]]+):screen([^\]]+)\]/g;
+const pointTagPattern = /\[POINT:([^,\]]+),([^:\]]+):([^:\]]+?)(?::screen([^\]]+))?\]/g;
+const pointNonePattern = /\[POINT:none\]/gi;
 
 export function parsePointTags(text: string): ParsedPointTags {
   const points: PointTarget[] = [];
 
-  const withoutTags = text.replace(pointTagPattern, (_match, rawX, rawY, rawLabel, rawScreen) => {
+  const withoutTags = text.replace(pointNonePattern, "").replace(pointTagPattern, (_match, rawX, rawY, rawLabel, rawScreen) => {
     const x = Number.parseInt(String(rawX).trim(), 10);
     const y = Number.parseInt(String(rawY).trim(), 10);
-    const screen = Number.parseInt(String(rawScreen).trim(), 10);
+    const screen = rawScreen === undefined ? 0 : Number.parseInt(String(rawScreen).trim(), 10);
 
     if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(screen)) {
       points.push({

@@ -110,7 +110,7 @@ async function chat(request: Request, env: WorkerEnv, cors: HeadersInit): Promis
     return sse(
       [
         "I can guide you from the visible screen. ",
-        'Click the highlighted Test Worker button next. [POINT:930,318:Test Worker:screen0] <CLICKY_PLAN>{"goal":"Test the Clicky Worker","app":"Clicky Windows","mode":"teaching","steps":[{"type":"click","label":"Test Worker","hint":"Confirm the local Worker is reachable","targetContext":"visibleElement"},{"type":"click","label":"Test Voice","hint":"Check spoken output or local fallback","targetContext":"visibleElement"}]}</CLICKY_PLAN>'
+        "test the worker next, then ask me about something visible on your screen. [POINT:930,318:Test Worker:screen0]"
       ],
       cors
     );

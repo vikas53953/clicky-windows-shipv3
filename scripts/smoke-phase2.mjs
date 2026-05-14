@@ -26,8 +26,8 @@ try {
   await page.getByText("Listening", { exact: true }).waitFor({ timeout: 3000 });
   await page.mouse.up();
 
-  await page.getByText(/If that is green, the mock shell is ready/i).first().waitFor({ timeout: 8000 });
-  await page.getByText("Pointing", { exact: true }).waitFor({ timeout: 8000 });
+  await page.getByText(/try asking about something visible on your screen/i).first().waitFor({ timeout: 12000 });
+  await page.getByText("Ready to listen", { exact: true }).waitFor({ timeout: 12000 });
 
   const rawPointTagVisible = await page.getByText("[POINT:", { exact: false }).count();
   if (rawPointTagVisible > 0) {

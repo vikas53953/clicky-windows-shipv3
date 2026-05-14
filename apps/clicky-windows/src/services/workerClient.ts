@@ -145,9 +145,9 @@ export function summarizeVoiceHealth(health: VoiceHealth): string {
 export function buildMockResponse(): string[] {
   return [
     "I can help from here. ",
-    "Open the settings panel first, then test the Worker connection. ",
+    "test the worker, then try asking about something visible on your screen. ",
     "[POINT:930,318:Test Worker:screen0] ",
-    'If that is green, the mock shell is ready for the native capture phase. <CLICKY_PLAN>{"goal":"Check the Clicky shell","app":"Clicky Windows","mode":"teaching","steps":[{"type":"click","label":"Test Worker","hint":"Confirm the Worker is reachable","targetContext":"visibleElement"},{"type":"click","label":"Test Voice","hint":"Check TTS or local fallback","targetContext":"visibleElement"}]}</CLICKY_PLAN>'
+    "that is the next useful checkpoint before live voice and screen testing."
   ];
 }
 

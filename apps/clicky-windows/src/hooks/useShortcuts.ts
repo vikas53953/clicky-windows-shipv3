@@ -1,4 +1,4 @@
-import { useEffect, type MutableRefObject } from "react";
+import { useEffect, useRef, type MutableRefObject } from "react";
 import type { ClickySession } from "../services/clickySession";
 import { listenNativeEvent, type NativeShortcutEvent } from "../services/nativeBridge";
 import type { StartListeningOptions } from "./useVoiceCapture";
@@ -12,6 +12,8 @@ interface UseShortcutsOptions {
 }
 
 export function useShortcuts({ nativeRuntime, isOverlayWindow, sessionStatusRef, startListening, stopListening }: UseShortcutsOptions): void {
+  const shortcutIsDownRef = useRef(false);
+
   useEffect(() => {
     if (!nativeRuntime || isOverlayWindow) return;
 
@@ -29,22 +31,20 @@ export function useShortcuts({ nativeRuntime, isOverlayWindow, sessionStatusRef,
   }, [isOverlayWindow, nativeRuntime, sessionStatusRef, startListening, stopListening]);
 
   useEffect(() => {
-    let shortcutIsDown = false;
-
     const isClickyShortcut = (event: KeyboardEvent) =>
       event.ctrlKey && event.altKey && (event.code === "Space" || event.key === " " || event.key === "Spacebar");
 
     const keyDown = (event: KeyboardEvent) => {
-      if (isClickyShortcut(event) && !shortcutIsDown) {
-        shortcutIsDown = true;
+      if (isClickyShortcut(event) && !shortcutIsDownRef.current) {
+        shortcutIsDownRef.current = true;
         event.preventDefault();
         startListening({ autoStopOnSilence: false });
       }
     };
 
     const keyUp = (event: KeyboardEvent) => {
-      if (shortcutIsDown && (event.code === "Space" || event.key === " " || event.key === "Spacebar")) {
-        shortcutIsDown = false;
+      if (shortcutIsDownRef.current && (event.code === "Space" || event.key === " " || event.key === "Spacebar")) {
+        shortcutIsDownRef.current = false;
         event.preventDefault();
         stopListening();
       }

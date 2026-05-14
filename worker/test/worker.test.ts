@@ -637,7 +637,7 @@ describe("Clicky Worker", () => {
     }
   });
 
-  it("adds safe local tool instructions only when computer use is enabled", async () => {
+  it("keeps computer-use guidance visual-only when computer use is enabled", async () => {
     const originalFetch = globalThis.fetch;
     let upstreamBody = "";
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -673,10 +673,11 @@ describe("Clicky Worker", () => {
       );
 
       expect(response.status).toBe(200);
-      expect(upstreamBody).toContain("Computer use is enabled");
-      expect(upstreamBody).toContain("open_url");
-      expect(upstreamBody).toContain("Never click");
-      expect(upstreamBody).toContain("run shell commands");
+      expect(upstreamBody).toContain("guide and point only");
+      expect(upstreamBody).toContain("do not claim you clicked");
+      expect(upstreamBody).toContain("ran shell commands");
+      expect(upstreamBody).not.toContain("CLICKY_TOOL");
+      expect(upstreamBody).not.toContain("open_url");
     } finally {
       globalThis.fetch = originalFetch;
     }

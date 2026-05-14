@@ -16,24 +16,19 @@ use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
     webview::Color,
-    AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-const OVERLAY_IDLE_WIDTH: i32 = 74;
-const OVERLAY_IDLE_HEIGHT: i32 = 54;
-const OVERLAY_BUBBLE_WIDTH: i32 = 380;
-const OVERLAY_BUBBLE_HEIGHT: i32 = 210;
-const OVERLAY_MARGIN: i32 = 12;
 const CURSOR_FOLLOW_INTERVAL_MS: u64 = 45;
 const PHASE2_SHORTCUT: &str = "ctrl+alt+space";
 const FALLBACK_SHORTCUT: &str = "ctrl+shift+space";
 const MAX_SCREENSHOT_WIDTH: u32 = 1280;
 
 static ACTIVE_SHORTCUT: OnceLock<Mutex<String>> = OnceLock::new();
-static OVERLAY_SIZE: OnceLock<Mutex<(i32, i32)>> = OnceLock::new();
+static OVERLAY_STATE: OnceLock<Mutex<Option<OverlayState>>> = OnceLock::new();
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CursorContext {
     x: i32,
@@ -62,6 +57,18 @@ struct OverlayState {
     avatar: Option<String>,
     voice_level: Option<f64>,
     voice_active: Option<bool>,
+    cursor: Option<CursorContext>,
+    active_point: Option<OverlayPoint>,
+    overlay_monitor: Option<CursorContext>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OverlayPoint {
+    x: i32,
+    y: i32,
+    label: String,
+    screen: usize,
 }
 
 #[derive(Clone, Serialize)]
@@ -130,16 +137,20 @@ fn set_overlay_visible(app: AppHandle, visible: bool) -> WorkerCheck {
 
 #[tauri::command]
 fn set_overlay_state(app: AppHandle, state: OverlayState) -> WorkerCheck {
-    let _ = app.emit("clicky-overlay-state", state.clone());
-    let (width, height) = overlay_dimensions_for_state(&state);
-    if let Ok(mut size) = overlay_size_cell().lock() {
-        *size = (width, height);
+    let cursor = cursor_context_from_app(&app);
+    let monitor = overlay_monitor_for_state(&app, &cursor, Some(&state));
+    let mut enriched_state = state.clone();
+    enriched_state.cursor = Some(cursor);
+    enriched_state.overlay_monitor = Some(monitor.clone());
+
+    if let Ok(mut stored) = overlay_state_cell().lock() {
+        *stored = Some(enriched_state.clone());
     }
 
+    let _ = app.emit("clicky-overlay-state", enriched_state);
+
     if let Some(window) = app.get_webview_window("overlay") {
-        let _ = window.set_size(tauri::PhysicalSize::new(width as u32, height as u32));
-        let cursor = cursor_context_from_app(&app);
-        let _ = window.set_position(overlay_position_for_cursor(&cursor));
+        apply_overlay_monitor(&window, &monitor);
         let _ = if state.visible {
             window.show()
         } else {
@@ -291,44 +302,59 @@ fn cursor_context_from_app(app: &AppHandle) -> CursorContext {
     }
 }
 
-fn overlay_size_cell() -> &'static Mutex<(i32, i32)> {
-    OVERLAY_SIZE.get_or_init(|| Mutex::new((OVERLAY_IDLE_WIDTH, OVERLAY_IDLE_HEIGHT)))
+fn overlay_state_cell() -> &'static Mutex<Option<OverlayState>> {
+    OVERLAY_STATE.get_or_init(|| Mutex::new(None))
 }
 
-fn current_overlay_size() -> (i32, i32) {
-    overlay_size_cell()
+fn current_overlay_state() -> Option<OverlayState> {
+    overlay_state_cell()
         .lock()
-        .map(|size| *size)
-        .unwrap_or((OVERLAY_IDLE_WIDTH, OVERLAY_IDLE_HEIGHT))
+        .ok()
+        .and_then(|state| state.clone())
 }
 
-fn overlay_dimensions_for_state(state: &OverlayState) -> (i32, i32) {
-    let has_bubble = !state.text.trim().is_empty() && state.status != "idle" && state.status != "listening";
-    if has_bubble {
-        (OVERLAY_BUBBLE_WIDTH, OVERLAY_BUBBLE_HEIGHT)
-    } else {
-        (OVERLAY_IDLE_WIDTH, OVERLAY_IDLE_HEIGHT)
+fn overlay_monitor_for_state(
+    app: &AppHandle,
+    cursor: &CursorContext,
+    state: Option<&OverlayState>,
+) -> CursorContext {
+    if let Some(point) = state
+        .filter(|overlay_state| overlay_state.status == "pointing")
+        .and_then(|overlay_state| overlay_state.active_point.as_ref())
+    {
+        if let Some(target) = monitor_context_by_index(app, point.screen, cursor) {
+            return target;
+        }
     }
+
+    cursor.clone()
 }
 
-fn overlay_position_for_cursor(cursor: &CursorContext) -> PhysicalPosition<i32> {
-    let (overlay_width, overlay_height) = current_overlay_size();
-    let min_x = cursor.monitor_x + OVERLAY_MARGIN;
-    let min_y = cursor.monitor_y + OVERLAY_MARGIN;
-    let max_x = cursor.monitor_x + cursor.monitor_width as i32 - overlay_width - OVERLAY_MARGIN;
-    let max_y = cursor.monitor_y + cursor.monitor_height as i32 - overlay_height - OVERLAY_MARGIN;
+fn monitor_context_by_index(
+    app: &AppHandle,
+    screen: usize,
+    fallback: &CursorContext,
+) -> Option<CursorContext> {
+    let monitors = app.available_monitors().ok()?;
+    let monitor = monitors.get(screen)?;
+    Some(CursorContext {
+        x: fallback.x,
+        y: fallback.y,
+        screen,
+        monitor_x: monitor.position().x,
+        monitor_y: monitor.position().y,
+        monitor_width: monitor.size().width,
+        monitor_height: monitor.size().height,
+        scale_factor: monitor.scale_factor(),
+    })
+}
 
-    let mut target_x = cursor.x + 24;
-    let mut target_y = cursor.y + 24;
-
-    if target_x > max_x {
-        target_x = cursor.x - overlay_width - 24;
-    }
-    if target_y > max_y {
-        target_y = cursor.y - overlay_height - 24;
-    }
-
-    PhysicalPosition::new(target_x.clamp(min_x, max_x), target_y.clamp(min_y, max_y))
+fn apply_overlay_monitor(window: &tauri::WebviewWindow, monitor: &CursorContext) {
+    let _ = window.set_position(PhysicalPosition::new(monitor.monitor_x, monitor.monitor_y));
+    let _ = window.set_size(PhysicalSize::new(
+        monitor.monitor_width,
+        monitor.monitor_height,
+    ));
 }
 
 fn show_window(app: &AppHandle, label: &str) {
@@ -339,6 +365,7 @@ fn show_window(app: &AppHandle, label: &str) {
 }
 
 fn create_overlay(app: &AppHandle) -> tauri::Result<()> {
+    let cursor = cursor_context_from_app(app);
     let overlay = WebviewWindowBuilder::new(
         app,
         "overlay",
@@ -352,14 +379,13 @@ fn create_overlay(app: &AppHandle) -> tauri::Result<()> {
     .always_on_top(true)
     .skip_taskbar(true)
     .resizable(false)
-    .inner_size(OVERLAY_IDLE_WIDTH as f64, OVERLAY_IDLE_HEIGHT as f64)
+    .inner_size(cursor.monitor_width as f64, cursor.monitor_height as f64)
+    .position(cursor.monitor_x as f64, cursor.monitor_y as f64)
     .visible(true)
     .build()?;
 
     let _ = overlay.set_ignore_cursor_events(true);
     let _ = overlay.set_background_color(Some(Color(0, 0, 0, 0)));
-    let cursor = cursor_context_from_app(app);
-    let _ = overlay.set_position(overlay_position_for_cursor(&cursor));
     Ok(())
 }
 
@@ -459,9 +485,11 @@ fn active_shortcut_label() -> String {
 fn start_cursor_follow_loop(app: AppHandle) {
     thread::spawn(move || loop {
         let cursor = cursor_context_from_app(&app);
+        let state = current_overlay_state();
+        let monitor = overlay_monitor_for_state(&app, &cursor, state.as_ref());
 
         if let Some(overlay) = app.get_webview_window("overlay") {
-            let _ = overlay.set_position(overlay_position_for_cursor(&cursor));
+            apply_overlay_monitor(&overlay, &monitor);
             let _ = overlay.set_ignore_cursor_events(true);
         }
 

@@ -65,11 +65,12 @@ public static class ClickyNativeSmoke {
 
 function Get-OverlayRect([int]$ProcessId) {
   $deadline = (Get-Date).AddSeconds(20)
+  $screenBounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
   do {
     $rects = [ClickyNativeSmoke]::GetWindowRectsForProcess($ProcessId) | Where-Object {
       $width = $_.Right - $_.Left
       $height = $_.Bottom - $_.Top
-      $width -ge 20 -and $width -le 420 -and $height -ge 20 -and $height -le 240
+      $width -ge ([Math]::Floor($screenBounds.Width * 0.85)) -and $height -ge ([Math]::Floor($screenBounds.Height * 0.85))
     }
 
     if ($rects.Count -gt 0) {
@@ -99,12 +100,16 @@ try {
   Start-Sleep -Seconds 2
 
   $secondRect = Get-OverlayRect -ProcessId $proc.Id
+  $firstWidth = $firstRect.Right - $firstRect.Left
+  $firstHeight = $firstRect.Bottom - $firstRect.Top
+  $secondWidth = $secondRect.Right - $secondRect.Left
+  $secondHeight = $secondRect.Bottom - $secondRect.Top
+  $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 
-  if ($firstRect.Left -eq $secondRect.Left -and $firstRect.Top -eq $secondRect.Top) {
-    throw "Overlay window did not move after cursor movement."
+  if ($firstWidth -lt [Math]::Floor($bounds.Width * 0.85) -or $firstHeight -lt [Math]::Floor($bounds.Height * 0.85)) {
+    throw "Overlay window is not full-screen enough. Rect: $firstWidth x $firstHeight. Screen: $($bounds.Width) x $($bounds.Height)."
   }
 
-  $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
   $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
   $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
 
@@ -116,7 +121,7 @@ try {
     $bitmap.Dispose()
   }
 
-  Write-Host "Phase 2 native smoke passed. Process ID: $($proc.Id). Overlay rect moved from $($firstRect.Left),$($firstRect.Top) to $($secondRect.Left),$($secondRect.Top). Screenshot: $screenshotPath"
+  Write-Host "Phase 2 native smoke passed. Process ID: $($proc.Id). Full-screen overlay rect stayed available at $($secondRect.Left),$($secondRect.Top), $secondWidth x $secondHeight. Screenshot: $screenshotPath"
 } finally {
   if (-not $proc.HasExited) {
     Stop-Process -Id $proc.Id -Force

@@ -1,4 +1,5 @@
 import type { ClickyStatus } from "./clickySession";
+import type { PointTarget } from "./pointTags";
 import type { ClickyAvatar, ScreenContext } from "./workerClient";
 
 export interface NativeCursorContext {
@@ -25,6 +26,9 @@ export interface NativeOverlayState {
   avatar?: ClickyAvatar;
   voiceLevel?: number;
   voiceActive?: boolean;
+  cursor?: NativeCursorContext;
+  activePoint?: PointTarget;
+  overlayMonitor?: NativeCursorContext;
 }
 
 export interface NativeShortcutEvent {
@@ -61,7 +65,7 @@ export function describeNativeRuntime(diagnostics: NativeDiagnostics | null, tau
   if (!tauriRuntime) return "Browser preview";
   if (!diagnostics) return "Tauri native, checking overlay";
   return diagnostics.overlayWindow && diagnostics.cursorFollowing
-    ? "Tauri native, overlay following cursor"
+    ? "Tauri native, full-screen overlay active"
     : "Tauri native, overlay needs attention";
 }
 
