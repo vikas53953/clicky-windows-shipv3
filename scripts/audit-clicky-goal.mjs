@@ -6,6 +6,11 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cargo = path.join(os.homedir(), ".cargo", "bin", process.platform === "win32" ? "cargo.exe" : "cargo");
 const appUrl = process.env.CLICKY_SMOKE_URL ?? "http://127.0.0.1:5174";
+const nativeTestTarget = path.join("target", `audit-native-${process.pid}`);
+const nativeCargoTestCommand =
+  process.platform === "win32"
+    ? `set "CARGO_TARGET_DIR=${nativeTestTarget}" && cargo test`
+    : `CARGO_TARGET_DIR="${nativeTestTarget}" "${cargo}" test`;
 
 const checks = [
   { name: "Type/lint", command: "npm run lint" },
@@ -19,6 +24,7 @@ const checks = [
   { name: "Style controls smoke", command: "npm run smoke:style-controls" },
   { name: "Voice waveform behavior smoke", command: "npm run smoke:voice-behavior" },
   { name: "Live voice fallback smoke", command: "npm run smoke:voice-fallback" },
+  { name: "Live app acceptance harness", command: "npm run acceptance:live-app" },
   {
     name: "ElevenLabs voice health",
     command: "npm run smoke:voice-health",
@@ -28,7 +34,7 @@ const checks = [
   },
   {
     name: "Native screenshot Rust test",
-    command: `${cargo} test`,
+    command: nativeCargoTestCommand,
     cwd: path.join(repoRoot, "apps", "clicky-windows", "src-tauri")
   },
   {

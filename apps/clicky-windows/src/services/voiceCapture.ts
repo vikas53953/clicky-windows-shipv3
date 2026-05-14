@@ -19,6 +19,7 @@ declare global {
     SpeechRecognition?: SpeechRecognitionConstructor;
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
     webkitAudioContext?: typeof AudioContext;
+    __CLICKY_ACCEPTANCE_TRANSCRIPT__?: string;
   }
 }
 
@@ -34,6 +35,17 @@ export interface VoiceCaptureResult {
 }
 
 export async function startVoiceCapture(): Promise<VoiceCaptureController> {
+  if (typeof window.__CLICKY_ACCEPTANCE_TRANSCRIPT__ === "string") {
+    return {
+      getLevel: () => (window.__CLICKY_ACCEPTANCE_TRANSCRIPT__ ? 0.4 : 0),
+      stop: async () => ({
+        transcript: window.__CLICKY_ACCEPTANCE_TRANSCRIPT__ || "",
+        audioBlob: null,
+        speechRecognitionUsed: true
+      })
+    };
+  }
+
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error("Microphone capture is not available in this runtime.");
   }

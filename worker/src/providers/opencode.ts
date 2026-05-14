@@ -359,9 +359,10 @@ function cleanGeminiSpeech(value: string): string {
   spoken = spoken
     .replace(/\s*\(this is a system prompt hidden from the user\)\s*/gi, " ")
     .replace(/^think\s*\r?\n\s*/i, "")
-    .replace(/\s*let me know if you want[^.?!]*(?:[.?!]|$)/gi, "")
+    .replace(/\s*let me know if [^.?!]*(?:[.?!]|$)/gi, "")
     .replace(/\s*if you want,?\s+i can[^.?!]*(?:[.?!]|$)/gi, "")
     .replace(/\s*would you like me to[^.?!]*(?:[.?!]|$)/gi, "")
+    .replace(/\s*i can help with [^.?!]*(?:[.?!]|$)/gi, "")
     .replace(/\s{2,}/g, " ")
     .trim();
   const tag = point || "[POINT:none]";

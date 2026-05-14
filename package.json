@@ -25,6 +25,7 @@
     "smoke:internet-tools": "node scripts/smoke-internet-tools.mjs",
     "smoke:product-flow": "node scripts/smoke-product-flow.mjs",
     "smoke:phase2b-latency": "node scripts/smoke-phase2b-latency.mjs",
+    "acceptance:live-app": "node scripts/acceptance-live-app.mjs",
     "smoke:live-providers": "node scripts/smoke-live-providers.mjs",
     "run:live-clicky": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-live-clicky-session.ps1",
     "tauri:dev": "npm run tauri:dev -w apps/clicky-windows",
