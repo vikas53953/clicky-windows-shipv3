@@ -397,8 +397,8 @@ h1 {
 
 .floating-buddy {
   position: absolute;
-  left: 0;
-  top: 0;
+  left: var(--clicky-x, 42px);
+  top: var(--clicky-y, 42px);
   display: inline-flex;
   width: auto;
   min-width: 28px;
@@ -411,10 +411,10 @@ h1 {
     drop-shadow(0 0 14px color-mix(in srgb, var(--clicky-accent) 32%, transparent));
   transform-origin: 50% 55%;
   transform:
-    translate(calc(var(--clicky-x, 42px) - 10px), calc(var(--clicky-y, 42px) - 12px))
+    translate(-10px, -12px)
     rotate(var(--clicky-rotation, 0deg))
     scale(var(--clicky-scale, 1));
-  will-change: transform;
+  will-change: left, top, transform;
   z-index: 2;
 }
 

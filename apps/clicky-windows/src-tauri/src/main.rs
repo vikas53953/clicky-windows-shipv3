@@ -20,6 +20,18 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+#[cfg(target_os = "windows")]
+#[repr(C)]
+struct WinPoint {
+    x: i32,
+    y: i32,
+}
+
+#[cfg(target_os = "windows")]
+extern "system" {
+    fn GetCursorPos(point: *mut WinPoint) -> i32;
+}
+
 const CURSOR_FOLLOW_INTERVAL_MS: u64 = 45;
 const PHASE2_SHORTCUT: &str = "ctrl+alt+space";
 const FALLBACK_SHORTCUT: &str = "ctrl+shift+space";
@@ -253,13 +265,15 @@ fn capture_screens(cursor: CursorContext) -> Result<Vec<ScreenCapturePayload>, S
 }
 
 fn cursor_context_from_app(app: &AppHandle) -> CursorContext {
-    let cursor = app.cursor_position().ok();
-    let x = cursor
-        .map(|position| position.x.round() as i32)
-        .unwrap_or(0);
-    let y = cursor
-        .map(|position| position.y.round() as i32)
-        .unwrap_or(0);
+    let cursor = native_cursor_position().or_else(|| {
+        app.cursor_position().ok().map(|position| {
+            (
+                position.x.round() as i32,
+                position.y.round() as i32,
+            )
+        })
+    });
+    let (x, y) = cursor.unwrap_or((0, 0));
 
     let monitors = app.available_monitors().unwrap_or_default();
     let monitor = app
@@ -300,6 +314,22 @@ fn cursor_context_from_app(app: &AppHandle) -> CursorContext {
             scale_factor: 1.0,
         }
     }
+}
+
+#[cfg(target_os = "windows")]
+fn native_cursor_position() -> Option<(i32, i32)> {
+    let mut point = WinPoint { x: 0, y: 0 };
+    let ok = unsafe { GetCursorPos(&mut point as *mut WinPoint) };
+    if ok == 0 {
+        None
+    } else {
+        Some((point.x, point.y))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn native_cursor_position() -> Option<(i32, i32)> {
+    None
 }
 
 fn overlay_state_cell() -> &'static Mutex<Option<OverlayState>> {
@@ -490,7 +520,15 @@ fn start_cursor_follow_loop(app: AppHandle) {
 
         if let Some(overlay) = app.get_webview_window("overlay") {
             apply_overlay_monitor(&overlay, &monitor);
+            let _ = overlay.show();
+            let _ = overlay.set_always_on_top(true);
             let _ = overlay.set_ignore_cursor_events(true);
+        }
+
+        if let Some(mut overlay_state) = state {
+            overlay_state.cursor = Some(cursor.clone());
+            overlay_state.overlay_monitor = Some(monitor.clone());
+            let _ = app.emit("clicky-overlay-state", overlay_state);
         }
 
         let _ = app.emit("clicky-cursor-moved", cursor);

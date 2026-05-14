@@ -2,7 +2,7 @@ import type { InternetToolResult } from "../types";
 import { firstMatch, normalizePlainText, truncate } from "../utils/text";
 
 export function hasSearchIntent(text: string): boolean {
-  return /\b(search|look up|lookup|browse|internet|web|latest|news|find out|what happened|who is|what is)\b/i.test(text);
+  return /\b(search|look up|lookup|browse|internet|web|latest|news|find out|what happened|who is|what is|schedule|fixture|fixtures|match|matches|score|scores|ipl|cricket|sports|tournament|league)\b/i.test(text);
 }
 
 export async function resolveSearchTool(transcript: string): Promise<InternetToolResult> {
@@ -62,9 +62,10 @@ async function resolveDuckDuckGoHtmlSearch(query: string): Promise<InternetToolR
   if (!response.ok) return null;
 
   const html = await response.text();
-  const title = normalizePlainText(firstMatch(html, /<a[^>]*class=["'][^"']*result__a[^"']*["'][^>]*>([\s\S]*?)<\/a>/i));
-  const snippet = normalizePlainText(firstMatch(html, /<a[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\s\S]*?)<\/a>/i));
-  const href = normalizePlainText(firstMatch(html, /<a[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["']/i));
+  const result = extractOrganicResult(html);
+  if (!result) return null;
+
+  const { title, snippet, href } = result;
   const summary = [title, snippet].filter(Boolean).join(": ");
   if (!summary) return null;
 
@@ -74,6 +75,33 @@ async function resolveDuckDuckGoHtmlSearch(query: string): Promise<InternetToolR
     source: href || "DuckDuckGo Search",
     summary: truncate(summary, 700)
   };
+}
+
+function extractOrganicResult(html: string): { title: string; snippet: string; href: string } | null {
+  const resultPattern =
+    /<a[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:<a[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\s\S]*?)<\/a>)?/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = resultPattern.exec(html))) {
+    const href = normalizePlainText(match[1] || "");
+    const title = normalizePlainText(match[2] || "");
+    const snippet = normalizePlainText(match[3] || "");
+    if (!title || isLikelyAdResult(title, snippet, href)) continue;
+    return { title, snippet, href };
+  }
+
+  return null;
+}
+
+function isLikelyAdResult(title: string, snippet: string, href: string): boolean {
+  const combined = `${title} ${snippet} ${href}`.toLowerCase();
+  return (
+    combined.includes("ad_provider=") ||
+    combined.includes("/aclick") ||
+    combined.includes("uddg=https%3a%2f%2fduckduckgo.com%2fy.js") ||
+    /\btickets?\b/.test(combined) ||
+    /\bon sale\b/.test(combined)
+  );
 }
 
 async function resolveNewsRssSearch(query: string): Promise<InternetToolResult | null> {

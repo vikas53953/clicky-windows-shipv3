@@ -69,7 +69,10 @@ async function openCodeGemini(body: ChatRequest, env: WorkerEnv, cors: HeadersIn
       },
       contents: buildGeminiContents(body),
       generationConfig: {
-        maxOutputTokens: Math.max(maxOutputTokensFor(body), 512)
+        maxOutputTokens: Math.max(maxOutputTokensFor(body), 512),
+        thinkingConfig: {
+          thinkingLevel: thinkingLevelFor(body)
+        }
       }
     })
   });
@@ -146,6 +149,10 @@ function resolveOpenCodeBaseUrl(env: WorkerEnv): string {
 
 function isGeminiModel(model: string): boolean {
   return model.toLowerCase().startsWith("gemini-");
+}
+
+function thinkingLevelFor(_body: ChatRequest): "minimal" {
+  return "minimal";
 }
 
 function buildGeminiContents(body: ChatRequest): unknown[] {

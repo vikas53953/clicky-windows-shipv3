@@ -599,9 +599,52 @@ describe("Clicky Worker", () => {
       expect(upstreamUrl).toContain("/models/gemini-3-flash:streamGenerateContent");
       expect(apiKeyHeader).toBe("test-key");
       expect(upstreamBody).toContain("inlineData");
+      expect(upstreamBody).toContain('"thinkingConfig":{"thinkingLevel":"minimal"}');
       expect(upstreamBody).toContain("screen 1 of 1");
       expect(upstreamBody).toContain("cursor is on this screen");
       expect(upstreamBody).toContain("image dimensions: 1280x720 pixels");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("uses minimal Gemini thinking for quick voice replies", async () => {
+    const originalFetch = globalThis.fetch;
+    let upstreamBody = "";
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://opencode.ai/zen/v1/models/gemini-3-flash:streamGenerateContent")) {
+        upstreamBody = String(init?.body || "");
+        return new Response('data: {"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}\n\n', {
+          status: 200,
+          headers: { "content-type": "text/event-stream" }
+        });
+      }
+
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      const response = await handleRequest(
+        new Request("http://worker.local/chat", {
+          method: "POST",
+          headers: {
+            Origin: "http://127.0.0.1:5174",
+            "Content-Type": "application/json",
+            "cf-connecting-ip": "gemini-quick-test"
+          },
+          body: JSON.stringify({
+            provider: "opencode",
+            model: "gemini-3-flash",
+            responseMode: "quick",
+            transcript: "say hi"
+          })
+        }),
+        { ...env, MOCK_MODE: "false", OPENCODE_API_KEY: "test-key", OPENCODE_MODEL: "" }
+      );
+
+      expect(response.status).toBe(200);
+      expect(upstreamBody).toContain('"thinkingConfig":{"thinkingLevel":"minimal"}');
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -777,6 +820,50 @@ describe("Clicky Worker", () => {
       expect(payload.tools[0].type).toBe("search");
       expect(payload.tools[0].status).toBe("ok");
       expect(payload.tools[0].summary).toContain("Modi travel update");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("searches for sports schedule questions like IPL match schedule", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://api.duckduckgo.com/")) {
+        return new Response(JSON.stringify({ Heading: "", Answer: "", AbstractText: "" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      if (url.startsWith("https://html.duckduckgo.com/html/")) {
+        return new Response(
+          '<html><body><a class="result__a" href="https://duckduckgo.com/y.js?ad_provider=bingv7aa">IPL Tickets On Sale Today</a><a class="result__snippet">Buy IPL tickets now.</a><a class="result__a" href="https://example.com/ipl">IPL match schedule today</a><a class="result__snippet">Today includes an evening IPL fixture.</a></body></html>',
+          { status: 200, headers: { "content-type": "text/html" } }
+        );
+      }
+
+      return originalFetch(input);
+    }) as typeof fetch;
+
+    try {
+      const response = await handleRequest(
+        new Request("http://worker.local/tools/resolve", {
+          method: "POST",
+          headers: {
+            Origin: "http://127.0.0.1:5174",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ transcript: "Can you tell me the IPL match schedule for today?" })
+        }),
+        env
+      );
+
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as { tools: Array<{ type: string; status: string; summary?: string }> };
+      const search = payload.tools.find((tool) => tool.type === "search");
+      expect(search?.status).toBe("ok");
+      expect(search?.summary).toContain("IPL match schedule today");
     } finally {
       globalThis.fetch = originalFetch;
     }

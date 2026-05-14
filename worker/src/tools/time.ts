@@ -1,7 +1,7 @@
 import type { InternetToolResult, WorkerEnv } from "../types";
 
 export function hasTimeIntent(text: string): boolean {
-  return /\b(time|date|today|now|current time|what day)\b/i.test(text);
+  return /\b(time|current time|what time|date today|today's date|what day)\b/i.test(text);
 }
 
 export function timezoneHint(timezone: string | undefined, env: WorkerEnv): string {

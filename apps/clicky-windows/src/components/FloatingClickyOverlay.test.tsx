@@ -18,4 +18,31 @@ describe("FloatingClickyOverlay", () => {
     expect(speaking).toContain("voice-waveform");
     expect(thinking).not.toContain("voice-waveform");
   });
+
+  it("positions the idle buddy from the live cursor coordinates", () => {
+    const markup = renderToStaticMarkup(
+      <FloatingClickyOverlay
+        status="listening"
+        text=""
+        showClicky
+        accentColor="#3b82f6"
+        avatar="classic"
+        voiceLevel={0}
+        voiceActive={false}
+        cursor={{
+          x: 420,
+          y: 260,
+          screen: 0,
+          monitorX: 100,
+          monitorY: 50,
+          monitorWidth: 900,
+          monitorHeight: 600,
+          scaleFactor: 1
+        }}
+      />
+    );
+
+    expect(markup).toContain("--clicky-x:348px");
+    expect(markup).toContain("--clicky-y:238px");
+  });
 });
