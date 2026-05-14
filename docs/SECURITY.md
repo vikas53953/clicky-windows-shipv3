@@ -7,7 +7,6 @@ Clicky Windows must never place Anthropic, OpenAI, OpenCode, AssemblyAI, or Elev
 ## Secret Handling
 
 - Desktop app env values are limited to safe local configuration such as Worker URL and mock mode.
-- `VITE_CLICKY_VOXCPM_URL`, `VITE_CLICKY_VOXCPM_MODEL`, `VITE_CLICKY_VOXCPM_VOICE`, and `VITE_CLICKY_VOICEBOX_URL` are safe localhost-only open-source voice fallback settings. They are not secrets.
 - Real provider keys belong in Cloudflare Worker secrets:
   - `ANTHROPIC_API_KEY`
   - `OPENAI_API_KEY`
@@ -29,7 +28,7 @@ User hotkey/button
   -> Worker streams sanitized response/audio back
   -> desktop app renders text, voice, and point animation
 
-When ElevenLabs TTS is unavailable, the app may try a local open-source VoxCPM service on localhost, then Voicebox/Chatterbox, then the built-in Windows speech engine. That fallback receives only the assistant response text, not screenshots, audio blobs, or provider keys.
+When ElevenLabs TTS is unavailable, the app may try the built-in Windows speech engine. That fallback receives only the assistant response text, not screenshots, audio blobs, or provider keys.
 ```
 
 ## Privacy Posture
@@ -51,7 +50,7 @@ When ElevenLabs TTS is unavailable, the app may try a local open-source VoxCPM s
 | Untrusted origins use the Worker | CORS allows configured local origins only. |
 | Large screenshots exceed model limits | Later capture phase must resize/compress before sending. |
 | Unsafe model guidance | System prompt refuses secrets, passwords, private data, and destructive actions. |
-| Voice-provider outage | Use local speech recognition when already available, then fall back to local VoxCPM, Voicebox/Chatterbox, or Windows speech only for spoken output. |
+| Voice-provider outage | Use local speech recognition when already available, then fall back to Windows speech only for spoken output. |
 
 ## Current Status
 

@@ -73,7 +73,7 @@ The current workspace is past the original Phase 2 plan:
 5. Native Tauri screenshot capture returns compressed JPEG monitor context without a browser picker.
 6. OpenCode/Kimi is verified live through the Worker.
 7. ElevenLabs routes are wired, and `/voice-health?deep=true` gives sanitized live voice diagnostics.
-8. Local voice fallback tries VoxCPM on localhost, then Voicebox/Chatterbox, then Windows speech synthesis.
+8. Local voice fallback tries Windows speech synthesis if Worker-routed ElevenLabs fails.
 9. TipTour-style hidden workflow plans are supported in teaching mode: model text can include `<CLICKY_PLAN>...</CLICKY_PLAN>`, Clicky strips the raw block from visible text, and the status rail renders a checklist.
 10. `npm run audit:goal` runs the full local/native verification set and labels ElevenLabs as `BLOCKED_EXTERNAL` while the current key/account is blocked.
 

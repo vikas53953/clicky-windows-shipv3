@@ -1,5 +1,4 @@
 node_modules/
-.venv-voxcpm/
 dist/
 .vite/
 .turbo/

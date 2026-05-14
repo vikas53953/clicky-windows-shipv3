@@ -81,10 +81,8 @@ BLOCKED_EXTERNAL Live providers
 
 Until ElevenLabs is recovered, Clicky keeps the text response visible and attempts local voice fallback:
 
-1. VoxCPM on `http://127.0.0.1:8000/v1/audio/speech`.
-2. Voicebox/Chatterbox on `http://127.0.0.1:17493`.
-3. Windows local speech synthesis.
+1. Windows local speech synthesis.
 
-This fallback does not send screenshots, audio blobs, API keys, or auth headers to the local voice service. It sends only the assistant response text.
+This fallback does not send screenshots, audio blobs, API keys, or auth headers outside the desktop app. It sends only the assistant response text to the Windows speech engine.
 
-VoxCPM details live in `docs/VOXCPM_LOCAL_TTS.md`.
+The removed local sidecar experiment is no longer part of the runnable app.

@@ -29,7 +29,7 @@ Recovery runbook remains available at `docs/ELEVENLABS_RECOVERY.md` if ElevenLab
 | ElevenLabs TTS route | `worker/src/index.ts`, `apps/clicky-windows/src/services/workerClient.ts`, `scripts/smoke-live-providers.mjs` | `npm run smoke:live-providers` passed; ElevenLabs generated `docs/live-tts-smoke.mp3` with 24,285 bytes in the audit run | Pass |
 | ElevenLabs STT route | `worker/src/index.ts`, `apps/clicky-windows/src/services/workerClient.ts`, `scripts/smoke-live-providers.mjs` | `npm run smoke:live-providers` passed; the ElevenLabs STT route transcribed the generated audio as `Clicky live voice test.` | Pass |
 | ElevenLabs voice diagnostics | `worker/src/index.ts`, `worker/test/worker.test.ts`, `apps/clicky-windows/src/services/workerClient.ts`, `scripts/smoke-voice-health.mjs` | `/voice-health?deep=true` returned `ok: true`, `status: tts_reachable`, and `message: ElevenLabs TTS probe passed.` | Pass |
-| Local voice fallback | `apps/clicky-windows/src/App.tsx`, `apps/clicky-windows/src/services/audioPlayback.ts`, `tools/voxcpm_openai_server.py`, `scripts/run-voxcpm-local.ps1`, `scripts/check-voxcpm-local.mjs`, `docs/VOICE_PROVIDER_REPLACEMENT.md`, `docs/VOXCPM_LOCAL_TTS.md` | `npm run smoke:voice-fallback` passed against a live Worker and verified the voice path is handled without leaking the long ElevenLabs remediation text; `Test Voice` now checks `/voice-health?deep=true` before falling back locally; VoxCPM is now the first local TTS fallback before Voicebox/Chatterbox and Windows speech; `npm run voxcpm:install` created `.venv-voxcpm` and installed `voxcpm`; `/health` and CORS `OPTIONS /v1/audio/speech` pass; `npm run check:voxcpm` timed out after 180 seconds because VoxCPM is running on CPU with no CUDA detected | Wired, too slow on current machine |
+| Local voice fallback | `apps/clicky-windows/src/services/audioPlayback.ts` | `npm run smoke:voice-fallback` passed against a live Worker and verified the voice path is handled without leaking the long ElevenLabs remediation text; `Test Voice` checks `/voice-health?deep=true` before falling back to Windows speech locally. | Wired |
 | TipTour-style workflow guidance | `apps/clicky-windows/src/services/workflowPlan.ts`, `apps/clicky-windows/src/services/clickySession.ts`, `apps/clicky-windows/src/components/StatusRail.tsx`, `worker/src/index.ts`, `docs/TIPTOUR_REFERENCE_NOTES.md` | TipTour reference inspected from `https://github.com/milind-soni/tiptour-macos`; Clicky now parses hidden `<CLICKY_PLAN>...</CLICKY_PLAN>` blocks, hides raw JSON, and renders a teaching checklist; `npm run smoke:phase1` verifies the plan appears and raw plan markup does not leak | Pass |
 | Verified browser QA | Browser/IAB and Playwright screenshots | Desktop, listening, post-mock, and mobile screenshots captured in `C:\Users\vikasmit\AppData\Local\Temp\clicky-qa` | Pass |
 | Verified native QA | `scripts/smoke-phase2-native.ps1` | `npm run smoke:phase2:native` passed after release build | Pass |
@@ -54,7 +54,7 @@ npm run smoke:voice-behavior
 npm run smoke:voice-fallback
 npm run smoke:voice-health
 npm run smoke:live-providers
-npm run voxcpm:check-prereqs
+npm run smoke:voice-fallback
 C:\Users\vikasmit\.cargo\bin\cargo.exe test
 ```
 

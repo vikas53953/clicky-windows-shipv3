@@ -20,9 +20,6 @@ npm run smoke:style-controls
 npm run smoke:voice-behavior
 npm run smoke:voice-fallback
 npm run smoke:voice-health
-npm run check:voxcpm
-npm run voxcpm:check-prereqs
-npm run voxcpm:install
 npm run run:live-clicky
 npm run smoke:live-providers
 ```
@@ -44,8 +41,6 @@ npm run smoke:live-providers
 - Component tests verify the waveform appears only while listening with active speech.
 - Secret smoke verifies source/docs/scripts do not contain API-key shaped values.
 - Voice health smoke verifies whether ElevenLabs is usable or externally blocked.
-- VoxCPM check verifies whether the optional local VoxCPM TTS endpoint is running and producing playable audio.
-- VoxCPM prereq check verifies Python 3.11, sidecar wrapper path, local venv state, and whether `nvidia-smi` is available.
 
 ## Browser Smoke
 
@@ -116,22 +111,6 @@ Expected behavior:
 - Native Tauri screen capture captures the current monitor context without a browser picker.
 - Worker streams the Kimi response.
 - Worker returns ElevenLabs audio and the app plays it when ElevenLabs is usable.
-- If ElevenLabs is blocked, Clicky keeps text visible and tries local VoxCPM, then Voicebox/Chatterbox, then Windows speech.
+- If ElevenLabs is blocked, Clicky keeps text visible and tries Windows speech.
 
 Kimi note: the current OpenCode Kimi path uses chat-completions. The app captures screenshots, but visual understanding depends on OpenCode/Kimi support for image input on that endpoint.
-
-## Local VoxCPM Check
-
-Run:
-
-```powershell
-npm run check:voxcpm
-```
-
-If VoxCPM is not running, the command prints a clear `not_running` JSON status and exits successfully. To make missing VoxCPM fail CI, run:
-
-```powershell
-$env:CLICKY_VOXCPM_REQUIRED="true"; npm run check:voxcpm
-```
-
-When the server responds with audio, the check writes `docs/voxcpm-smoke.wav`.

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const includeExtensions = new Set([".env", ".example", ".json", ".md", ".mjs", ".ps1", ".rs", ".toml", ".ts", ".tsx"]);
-const ignoredDirs = new Set([".git", ".venv", ".venv-voxcpm", "__pycache__", "dist", "node_modules", "target"]);
+const ignoredDirs = new Set([".git", ".venv", "__pycache__", "dist", "node_modules", "target"]);
 const ignoredFiles = new Set(["package-lock.json", "worker/.dev.vars"]);
 const patterns = [
   { name: "OpenAI-style secret key", regex: /sk-[A-Za-z0-9_-]{20,}/ },

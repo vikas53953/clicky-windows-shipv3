@@ -16,7 +16,7 @@ Windows-native Clicky scaffold built from the SHIPv3 instructions in this folder
 - Phase 2 global shortcut scaffold: `Ctrl+Alt+Space`.
 - Worker live provider paths for OpenCode chat, ElevenLabs TTS, and ElevenLabs STT.
 - Safe ElevenLabs voice health diagnostic at `/voice-health?deep=true`.
-- Local voice fallback path: VoxCPM on localhost, then Voicebox/Chatterbox, then Windows speech synthesis.
+- Local voice fallback path: Windows speech synthesis after Worker-routed ElevenLabs fails.
 - Settings controls for Clicky color and avatar.
 - `Test Voice` button for the Worker-routed TTS path.
 - Native Windows screenshot capture through the Tauri backend, without browser share picker in the packaged app.
@@ -40,8 +40,6 @@ npm run smoke:style-controls
 npm run smoke:voice-behavior
 npm run smoke:voice-fallback
 npm run smoke:voice-health
-npm run check:voxcpm
-npm run voxcpm:check-prereqs
 npm run smoke:live-providers
 npm run audit:goal
 npm run configure:live-providers
