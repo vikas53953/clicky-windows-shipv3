@@ -66,6 +66,8 @@ export interface ConversationMessage {
   content: string;
 }
 
+export const MAX_CHAT_SCREENSHOTS = 2;
+
 export const defaultSettings: ClickySettings = {
   workerUrl: import.meta.env.VITE_CLICKY_WORKER_URL ?? "http://127.0.0.1:8789",
   model: "minimax-m2.7",
@@ -85,6 +87,11 @@ export function modelSupportsScreenImages(settings: Pick<ClickySettings, "provid
   if (requested.includes("minimax") || requested.includes("m2.7") || requested.includes("m2-7")) return false;
   if (requested.includes("kimi") || requested.includes("moonshot")) return false;
   return /gpt|claude|vision|vl|multimodal|gemini|qwen-vl|pixtral/.test(requested);
+}
+
+export function prepareScreenshotsForChat(settings: Pick<ClickySettings, "provider" | "model">, screenshots: ScreenContext[]): ScreenContext[] {
+  if (!modelSupportsScreenImages(settings)) return [];
+  return screenshots.slice(0, MAX_CHAT_SCREENSHOTS);
 }
 
 export async function testWorkerConnection(settings: ClickySettings): Promise<WorkerHealth> {
@@ -175,6 +182,7 @@ export async function streamChatResponse(
 ): Promise<string> {
   const workerUrl = settings.workerUrl.replace(/\/$/, "");
   const timeout = createTimeoutSignal(signal, 30_000, "Chat provider took too long to respond.");
+  const screenshots = prepareScreenshotsForChat(settings, request.screenshots);
   const response = await fetchWorker(workerUrl, "/chat", {
     method: "POST",
     headers: {
@@ -190,7 +198,7 @@ export async function streamChatResponse(
       transcript: request.transcript,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       messages: request.messages,
-      screenshots: request.screenshots.map((screenshot) => ({
+      screenshots: screenshots.map((screenshot) => ({
         mediaType: screenshot.mediaType,
         base64: screenshot.base64,
         width: screenshot.width,

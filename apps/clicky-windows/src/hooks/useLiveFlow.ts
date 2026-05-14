@@ -13,6 +13,7 @@ import {
   buildMockResponse,
   chooseFinalTranscript,
   modelSupportsScreenImages,
+  prepareScreenshotsForChat,
   requestTextToSpeech,
   streamChatResponse,
   summarizeVoiceHealth,
@@ -335,9 +336,12 @@ export function useLiveFlow({
 
       safeDispatch({ type: "screenCaptured" });
       const canUseScreenshots = modelSupportsScreenImages(settings);
+      const screenshotsForChat = prepareScreenshotsForChat(settings, screenshots);
       safeSetWorkerStatus(
         screenshots.length && !canUseScreenshots
           ? `Streaming ${settings.provider}/${settings.model}; this model cannot receive raw screenshots, so Clicky will use transcript and tools only.`
+          : screenshots.length > screenshotsForChat.length
+            ? `Captured ${screenshotsForChat.length} of ${screenshots.length} screens; using the cursor screen first.`
           : `Streaming ${settings.provider}/${settings.model} via Worker...`
       );
       publishOverlayState({
@@ -368,7 +372,7 @@ export function useLiveFlow({
         : null;
       const responseText = await streamChatResponse(
         settings,
-        { transcript, screenshots, quickResponse: !needsScreenContext, messages: conversationMessagesRef.current },
+        { transcript, screenshots: screenshotsForChat, quickResponse: !needsScreenContext, messages: conversationMessagesRef.current },
         (chunk) => {
           if (!current()) return;
           if (!firstTokenSeen) {

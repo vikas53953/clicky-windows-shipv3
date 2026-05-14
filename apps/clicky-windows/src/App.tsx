@@ -72,7 +72,7 @@ export default function App() {
         avatar={floatingOverlay.avatar ?? settings.avatar}
         voiceLevel={floatingOverlay.voiceLevel ?? voice.voiceLevel}
         voiceActive={floatingOverlay.voiceActive ?? voice.voiceActive}
-        cursor={floatingOverlay.cursor ?? cursorContext ?? undefined}
+        cursor={cursorContext ?? floatingOverlay.cursor ?? undefined}
         activePoint={floatingOverlay.activePoint}
         overlayMonitor={floatingOverlay.overlayMonitor}
       />

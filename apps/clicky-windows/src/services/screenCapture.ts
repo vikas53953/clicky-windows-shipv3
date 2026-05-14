@@ -2,11 +2,12 @@ import type { ScreenContext } from "./workerClient";
 import { captureNativeScreenContext, isTauriRuntime } from "./nativeBridge";
 
 const maxCaptureWidth = 1280;
+const maxWorkerScreenshots = 2;
 
 export async function captureScreenContext(): Promise<ScreenContext[]> {
   const nativeCapture = await captureNativeScreenContext();
   if (nativeCapture?.length) {
-    return nativeCapture;
+    return selectScreenContextForWorker(nativeCapture);
   }
 
   if (isTauriRuntime()) {
@@ -58,6 +59,31 @@ export async function captureScreenContext(): Promise<ScreenContext[]> {
   } finally {
     stream.getTracks().forEach((track) => track.stop());
   }
+}
+
+export function selectScreenContextForWorker(captures: ScreenContext[], maxScreenshots = maxWorkerScreenshots): ScreenContext[] {
+  return captures
+    .map((capture, index) => ({ capture, index }))
+    .sort((left, right) => screenPriority(left.capture, left.index) - screenPriority(right.capture, right.index))
+    .slice(0, maxScreenshots)
+    .map(({ capture }) => capture);
+}
+
+function screenPriority(capture: ScreenContext, index: number): number {
+  const containsCursor =
+    typeof capture.cursorX === "number" &&
+    typeof capture.cursorY === "number" &&
+    typeof capture.monitorX === "number" &&
+    typeof capture.monitorY === "number" &&
+    typeof capture.monitorWidth === "number" &&
+    typeof capture.monitorHeight === "number" &&
+    capture.cursorX >= capture.monitorX &&
+    capture.cursorX < capture.monitorX + capture.monitorWidth &&
+    capture.cursorY >= capture.monitorY &&
+    capture.cursorY < capture.monitorY + capture.monitorHeight;
+
+  if (containsCursor) return -1000 + (capture.screen ?? index);
+  return capture.screen ?? index;
 }
 
 function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {

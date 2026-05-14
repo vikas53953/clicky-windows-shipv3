@@ -4,6 +4,7 @@ import {
   defaultSettings,
   formatWorkerHttpError,
   modelSupportsScreenImages,
+  prepareScreenshotsForChat,
   requestTextToSpeech,
   summarizeVoiceHealth,
   testVoiceHealth,
@@ -89,5 +90,25 @@ describe("workerClient", () => {
   it("detects when the active model cannot receive screenshots", () => {
     expect(modelSupportsScreenImages({ provider: "opencode", model: "minimax-m2.7" })).toBe(false);
     expect(modelSupportsScreenImages({ provider: "anthropic", model: "claude-sonnet-4-5" })).toBe(true);
+  });
+
+  it("does not send screenshots to text-only models", () => {
+    const screenshots = [
+      { mediaType: "image/jpeg" as const, base64: "one", width: 100, height: 100 },
+      { mediaType: "image/jpeg" as const, base64: "two", width: 100, height: 100 },
+      { mediaType: "image/jpeg" as const, base64: "three", width: 100, height: 100 }
+    ];
+
+    expect(prepareScreenshotsForChat({ provider: "opencode", model: "minimax-m2.7" }, screenshots)).toEqual([]);
+  });
+
+  it("never sends more screenshots than the Worker accepts", () => {
+    const screenshots = [
+      { mediaType: "image/jpeg" as const, base64: "one", width: 100, height: 100 },
+      { mediaType: "image/jpeg" as const, base64: "two", width: 100, height: 100 },
+      { mediaType: "image/jpeg" as const, base64: "three", width: 100, height: 100 }
+    ];
+
+    expect(prepareScreenshotsForChat({ provider: "anthropic", model: "claude-sonnet-4-5" }, screenshots)).toHaveLength(2);
   });
 });
