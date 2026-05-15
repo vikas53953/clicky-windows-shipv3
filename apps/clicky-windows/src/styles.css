@@ -235,6 +235,41 @@ h1 {
   font-weight: 720;
 }
 
+.computer-confirmation {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #f4c56d;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fff8e8;
+  color: #624411;
+  font-size: 13px;
+}
+
+.computer-confirmation strong {
+  color: #172033;
+  line-height: 1.35;
+}
+
+.computer-confirmation div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.computer-confirmation button {
+  min-height: 34px;
+  border: 1px solid #e6b452;
+  background: #ffffff;
+  color: #172033;
+}
+
+.computer-confirmation button:first-child {
+  border-color: #2f7cf6;
+  background: #2f7cf6;
+  color: #ffffff;
+}
+
 .field-grid label {
   display: grid;
   gap: 7px;

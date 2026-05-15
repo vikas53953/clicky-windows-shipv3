@@ -101,13 +101,12 @@ async function runVoiceTurn(page, transcript, expected, options = {}) {
     window.__clickyTranscriptQueue = [value];
   }, transcript);
 
-  const button = page.getByRole("button", { name: /hold to talk|release to send voice request/i });
-  await page.mouse.up().catch(() => {});
+  const button = page.getByRole("button", { name: /start listening|stop and send voice request/i });
   await button.scrollIntoViewIfNeeded();
   const box = await button.boundingBox();
   if (!box) throw new Error("Talk button was not visible.");
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   try {
     await page.getByText("Listening", { exact: true }).waitFor({ timeout: 5000 });
   } catch (error) {
@@ -116,7 +115,7 @@ async function runVoiceTurn(page, transcript, expected, options = {}) {
     throw new Error(`Talk did not enter listening for transcript "${transcript}". Status was:\n${status}\n${error instanceof Error ? error.message : error}`);
   }
   await page.waitForTimeout(180);
-  await page.mouse.up();
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 
   try {
     await page.locator('[aria-label="Clicky status"]').getByText(expected).first().waitFor({ timeout: options.expectError ? 10000 : 30000 });

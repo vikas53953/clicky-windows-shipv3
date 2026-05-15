@@ -29,9 +29,12 @@ const quickResponseInstruction =
 
 export function systemPromptFor(body: ChatRequest): string {
   const base = body.system || clickySystemPrompt;
-  const computerUseInstruction = body.computerUseEnabled
-    ? "\n\ncomputer use may be enabled later, but for this response you should guide and point only. do not claim you clicked, typed, submitted, purchased, installed, ran shell commands, or changed files."
-    : "";
+  const geminiComputerUse = body.computerUseEnabled && body.provider === "opencode" && (body.model || "").toLowerCase().startsWith("gemini-");
+  const computerUseInstruction = geminiComputerUse
+    ? "\n\ncomputer use is available through a local Cua computer server, but only after explicit user confirmation. when the user asks you to open apps, click, type, browse, fill forms, or complete desktop workflows, call the computer_use tool with the full task. do not claim the action is done until the tool result says it completed."
+    : body.computerUseEnabled
+      ? "\n\ncomputer use requires the Gemini tool route. for this response, guide and point only. do not claim you clicked, typed, submitted, purchased, installed, ran shell commands, or changed files."
+      : "";
   return body.responseMode === "quick" ? `${base}${computerUseInstruction}\n\n${quickResponseInstruction}` : `${base}${computerUseInstruction}`;
 }
 

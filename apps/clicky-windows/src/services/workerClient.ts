@@ -66,6 +66,10 @@ export interface ConversationMessage {
   content: string;
 }
 
+export type WorkerStreamEvent =
+  | { type: "action_status"; text: string }
+  | { type: "computer_use_confirmation"; task: string };
+
 export const MAX_CHAT_SCREENSHOTS = 2;
 
 export const defaultSettings: ClickySettings = {
@@ -178,9 +182,17 @@ export function chooseFinalTranscript(input: {
 
 export async function streamChatResponse(
   settings: ClickySettings,
-  request: { transcript: string; screenshots: ScreenContext[]; quickResponse?: boolean; messages?: ConversationMessage[] },
+  request: {
+    transcript: string;
+    screenshots: ScreenContext[];
+    quickResponse?: boolean;
+    messages?: ConversationMessage[];
+    computerUseConfirmed?: boolean;
+    confirmedComputerTask?: string;
+  },
   onChunk: (chunk: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onEvent?: (event: WorkerStreamEvent) => void
 ): Promise<string> {
   const workerUrl = settings.workerUrl.replace(/\/$/, "");
   const timeout = createTimeoutSignal(signal, 30_000, "Chat provider took too long to respond.");
@@ -197,6 +209,8 @@ export async function streamChatResponse(
       model: settings.model,
       responseMode: request.quickResponse ? "quick" : "screen_guidance",
       computerUseEnabled: settings.computerUseEnabled,
+      computerUseConfirmed: request.computerUseConfirmed,
+      confirmedComputerTask: request.confirmedComputerTask,
       transcript: request.transcript,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       messages: request.messages,
@@ -233,6 +247,14 @@ export async function streamChatResponse(
     if (parsed.type === "chunk" && parsed.text) {
       fullText += parsed.text;
       onChunk(parsed.text);
+    }
+
+    if (parsed.type === "action_status" && parsed.text) {
+      onEvent?.({ type: "action_status", text: parsed.text });
+    }
+
+    if (parsed.type === "computer_use_confirmation" && typeof (parsed as { task?: unknown }).task === "string") {
+      onEvent?.({ type: "computer_use_confirmation", task: (parsed as { task: string }).task });
     }
 
     if (parsed.type === "error" && parsed.text) {

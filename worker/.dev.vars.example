@@ -7,4 +7,9 @@ OPENCODE_API_KEY=replace-with-opencode-api-key
 ELEVENLABS_API_KEY=replace-with-elevenlabs-api-key
 ELEVENLABS_VOICE_ID=
 ELEVENLABS_STT_MODEL_ID=scribe_v1
+CUA_COMPUTER_SERVER_URL=http://127.0.0.1:8000
+# Optional: enables Cua /responses autonomous loop for multi-step desktop tasks.
+# CUA_AGENT_MODEL=openai/computer-use-preview
+# CUA_AGENT_API_KEY=replace-with-agent-model-key
+# CUA_AGENT_API_BASE=
 ASSEMBLYAI_API_KEY=

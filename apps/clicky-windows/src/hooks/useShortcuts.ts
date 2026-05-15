@@ -9,9 +9,10 @@ interface UseShortcutsOptions {
   sessionStatusRef: MutableRefObject<ClickySession["status"]>;
   startListening: (options?: StartListeningOptions) => void;
   stopListening: () => void;
+  toggleListening: () => void;
 }
 
-export function useShortcuts({ nativeRuntime, isOverlayWindow, sessionStatusRef, startListening, stopListening }: UseShortcutsOptions): void {
+export function useShortcuts({ nativeRuntime, isOverlayWindow, sessionStatusRef, startListening, stopListening, toggleListening }: UseShortcutsOptions): void {
   const shortcutIsDownRef = useRef(false);
 
   useEffect(() => {
@@ -19,6 +20,7 @@ export function useShortcuts({ nativeRuntime, isOverlayWindow, sessionStatusRef,
 
     let unlistenShortcut: (() => void) | null = null;
     void listenNativeEvent<NativeShortcutEvent>("clicky-shortcut", (event) => {
+      if (event.phase === "toggle") toggleListening();
       if (event.phase === "started" && sessionStatusRef.current !== "listening") startListening({ autoStopOnSilence: false });
       if (event.phase === "ended" && sessionStatusRef.current === "listening") stopListening();
     }).then((unlisten) => {
@@ -28,7 +30,7 @@ export function useShortcuts({ nativeRuntime, isOverlayWindow, sessionStatusRef,
     return () => {
       unlistenShortcut?.();
     };
-  }, [isOverlayWindow, nativeRuntime, sessionStatusRef, startListening, stopListening]);
+  }, [isOverlayWindow, nativeRuntime, sessionStatusRef, startListening, stopListening, toggleListening]);
 
   useEffect(() => {
     const isClickyShortcut = (event: KeyboardEvent) =>
@@ -38,7 +40,7 @@ export function useShortcuts({ nativeRuntime, isOverlayWindow, sessionStatusRef,
       if (isClickyShortcut(event) && !shortcutIsDownRef.current) {
         shortcutIsDownRef.current = true;
         event.preventDefault();
-        startListening({ autoStopOnSilence: false });
+        toggleListening();
       }
     };
 
@@ -46,7 +48,6 @@ export function useShortcuts({ nativeRuntime, isOverlayWindow, sessionStatusRef,
       if (shortcutIsDownRef.current && (event.code === "Space" || event.key === " " || event.key === "Spacebar")) {
         shortcutIsDownRef.current = false;
         event.preventDefault();
-        stopListening();
       }
     };
 
@@ -56,5 +57,5 @@ export function useShortcuts({ nativeRuntime, isOverlayWindow, sessionStatusRef,
       window.removeEventListener("keydown", keyDown);
       window.removeEventListener("keyup", keyUp);
     };
-  }, [startListening, stopListening]);
+  }, [toggleListening]);
 }

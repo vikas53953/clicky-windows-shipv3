@@ -32,8 +32,12 @@ export interface NativeOverlayState {
 }
 
 export interface NativeShortcutEvent {
-  phase: "started" | "ended";
+  phase: "toggle" | "started" | "ended";
   shortcut: string;
+}
+
+export interface NativeAccentColorEvent {
+  color: string;
 }
 
 export interface NativeDiagnostics {

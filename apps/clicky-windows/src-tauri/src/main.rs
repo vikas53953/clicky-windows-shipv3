@@ -90,6 +90,12 @@ struct ShortcutPayload {
     shortcut: String,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AccentPayload {
+    color: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NativeDiagnostics {
@@ -125,6 +131,7 @@ fn get_cursor_context(app: AppHandle) -> CursorContext {
 
 #[tauri::command]
 fn set_overlay_visible(app: AppHandle, visible: bool) -> WorkerCheck {
+    let _ = ensure_overlay(&app);
     if let Some(window) = app.get_webview_window("overlay") {
         let result = if visible {
             window.show()
@@ -149,6 +156,7 @@ fn set_overlay_visible(app: AppHandle, visible: bool) -> WorkerCheck {
 
 #[tauri::command]
 fn set_overlay_state(app: AppHandle, state: OverlayState) -> WorkerCheck {
+    let _ = ensure_overlay(&app);
     let cursor = cursor_context_from_app(&app);
     let monitor = overlay_monitor_for_state(&app, &cursor, Some(&state));
     let mut enriched_state = state.clone();
@@ -178,9 +186,10 @@ fn set_overlay_state(app: AppHandle, state: OverlayState) -> WorkerCheck {
 
 #[tauri::command]
 fn overlay_diagnostics(app: AppHandle) -> NativeDiagnostics {
+    let overlay_window = ensure_overlay(&app);
     NativeDiagnostics {
         is_tauri: true,
-        overlay_window: app.get_webview_window("overlay").is_some(),
+        overlay_window,
         overlay_click_through: true,
         cursor_following: true,
         shortcut: active_shortcut_label(),
@@ -419,31 +428,54 @@ fn create_overlay(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+fn ensure_overlay(app: &AppHandle) -> bool {
+    if app.get_webview_window("overlay").is_some() {
+        return true;
+    }
+
+    create_overlay(app).is_ok()
+}
+
 fn create_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show Clicky", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
-    let test_worker = MenuItem::with_id(
+    let shortcut = MenuItem::with_id(
         app,
-        "test-worker",
-        "Test Worker Connection",
-        true,
+        "shortcut",
+        format!("Shortcut: {}", active_shortcut_label()),
+        false,
         None::<&str>,
     )?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &settings, &test_worker, &quit])?;
+    let blue = MenuItem::with_id(app, "accent-blue", "Blue", true, None::<&str>)?;
+    let mint = MenuItem::with_id(app, "accent-mint", "Mint", true, None::<&str>)?;
+    let violet = MenuItem::with_id(app, "accent-violet", "Violet", true, None::<&str>)?;
+    let rose = MenuItem::with_id(app, "accent-rose", "Rose", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Clicky", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&settings, &shortcut, &blue, &mint, &violet, &rose, &quit])?;
 
     TrayIconBuilder::with_id("clicky-tray")
         .tooltip("Clicky Windows")
         .menu(&menu)
-        .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "show" | "settings" | "test-worker" => show_window(app, "main"),
+            "settings" => show_window(app, "main"),
+            "accent-blue" => emit_accent_color(app, "#3b82f6"),
+            "accent-mint" => emit_accent_color(app, "#10b981"),
+            "accent-violet" => emit_accent_color(app, "#8b5cf6"),
+            "accent-rose" => emit_accent_color(app, "#f43f5e"),
             "quit" => app.exit(0),
             _ => {}
         })
         .build(app)?;
 
     Ok(())
+}
+
+fn emit_accent_color(app: &AppHandle, color: &str) {
+    let _ = app.emit(
+        "clicky-accent-color",
+        AccentPayload {
+            color: color.to_string(),
+        },
+    );
 }
 
 fn register_shortcut(app: &AppHandle) -> tauri::Result<()> {
@@ -462,15 +494,7 @@ fn register_shortcut(app: &AppHandle) -> tauri::Result<()> {
                     let _ = app.emit(
                         "clicky-shortcut",
                         ShortcutPayload {
-                            phase: "started".to_string(),
-                            shortcut: shortcut_label.clone(),
-                        },
-                    );
-                } else if event.state() == ShortcutState::Released {
-                    let _ = app.emit(
-                        "clicky-shortcut",
-                        ShortcutPayload {
-                            phase: "ended".to_string(),
+                            phase: "toggle".to_string(),
                             shortcut: shortcut_label.clone(),
                         },
                     );
@@ -517,6 +541,7 @@ fn start_cursor_follow_loop(app: AppHandle) {
         let cursor = cursor_context_from_app(&app);
         let state = current_overlay_state();
         let monitor = overlay_monitor_for_state(&app, &cursor, state.as_ref());
+        let _ = ensure_overlay(&app);
 
         if let Some(overlay) = app.get_webview_window("overlay") {
             apply_overlay_monitor(&overlay, &monitor);

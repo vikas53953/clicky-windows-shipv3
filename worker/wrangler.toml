@@ -10,6 +10,7 @@ OPENCODE_MODEL = "gemini-3-flash"
 OPENCODE_API_MODE = "chat_completions"
 OPENCODE_BASE_URL = "https://opencode.ai/zen/v1"
 OPENAI_MODEL = "gpt-5"
+CUA_COMPUTER_SERVER_URL = "http://127.0.0.1:8000"
 
 # No provider secrets are stored here.
 # Configure real secrets with:
@@ -19,3 +20,7 @@ OPENAI_MODEL = "gpt-5"
 # npx wrangler secret put ASSEMBLYAI_API_KEY
 # npx wrangler secret put ELEVENLABS_API_KEY
 # npx wrangler secret put ELEVENLABS_VOICE_ID
+# Optional for Cua autonomous /responses loop:
+# npx wrangler secret put CUA_AGENT_MODEL
+# npx wrangler secret put CUA_AGENT_API_KEY
+# npx wrangler secret put CUA_AGENT_API_BASE

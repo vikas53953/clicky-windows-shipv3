@@ -1,19 +1,20 @@
-import type { CSSProperties, PointerEvent } from "react";
-import { useRef } from "react";
+import type { CSSProperties } from "react";
 import { Bug, Eraser, Eye, EyeOff, Hand, Mic, Palette, Settings, ShieldCheck, Volume2, VolumeX, Wifi } from "lucide-react";
 import { CLICKY_ACCENT_OPTIONS, CLICKY_AVATAR_OPTIONS, type ClickySettings } from "../services/workerClient";
+import { shortcutFromKeyboardEvent } from "../services/shortcutCapture";
 import { ClickyMark } from "./ClickyMark";
 
 interface SettingsPanelProps {
   settings: ClickySettings;
   onSettingsChange: (settings: ClickySettings) => void;
   onToggleListening: () => void;
-  onStartListening: (options?: { autoStopOnSilence?: boolean }) => void;
-  onStopListening: () => void;
   onTestWorker: () => void;
   onTestVoice: () => void;
   onProbeMic: () => void;
   onClear: () => void;
+  pendingComputerTask: string | null;
+  onConfirmComputerUse: () => void;
+  onCancelComputerUse: () => void;
   listening: boolean;
   nativeSummary: string;
   micStatus: string;
@@ -23,37 +24,19 @@ export function SettingsPanel({
   settings,
   onSettingsChange,
   onToggleListening,
-  onStartListening,
-  onStopListening,
   onTestWorker,
   onTestVoice,
   onProbeMic,
   onClear,
+  pendingComputerTask,
+  onConfirmComputerUse,
+  onCancelComputerUse,
   listening,
   nativeSummary,
   micStatus
 }: SettingsPanelProps) {
-  const pointerTalkActive = useRef(false);
-  const pointerTalkHandled = useRef(false);
-
   const set = <K extends keyof ClickySettings>(key: K, value: ClickySettings[K]) => {
     onSettingsChange({ ...settings, [key]: value });
-  };
-
-  const startPointerTalk = (event: PointerEvent<HTMLButtonElement>) => {
-    if (event.button !== 0 || listening) return;
-    pointerTalkActive.current = true;
-    pointerTalkHandled.current = true;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    event.preventDefault();
-    onStartListening({ autoStopOnSilence: false });
-  };
-
-  const stopPointerTalk = (event: PointerEvent<HTMLButtonElement>) => {
-    if (!pointerTalkActive.current) return;
-    pointerTalkActive.current = false;
-    event.preventDefault();
-    onStopListening();
   };
 
   return (
@@ -70,19 +53,9 @@ export function SettingsPanel({
         <button
           className={`record-button ${listening ? "recording" : ""}`}
           type="button"
-          aria-label={listening ? "Release to send voice request" : "Hold to talk"}
-          title="Hold to talk"
-          onPointerDown={startPointerTalk}
-          onPointerUp={stopPointerTalk}
-          onPointerCancel={stopPointerTalk}
-          onClick={(event) => {
-            if (pointerTalkHandled.current) {
-              pointerTalkHandled.current = false;
-              event.preventDefault();
-              return;
-            }
-            onToggleListening();
-          }}
+          aria-label={listening ? "Stop and send voice request" : "Start listening"}
+          title={listening ? "Stop and send" : "Start listening"}
+          onClick={onToggleListening}
         >
           <Mic size={22} aria-hidden="true" />
           <span>{listening ? "Send" : "Talk"}</span>
@@ -106,6 +79,21 @@ export function SettingsPanel({
         <strong>{micStatus}</strong>
       </div>
 
+      {pendingComputerTask ? (
+        <div className="computer-confirmation" role="alert">
+          <span>Confirm computer action</span>
+          <strong>{pendingComputerTask}</strong>
+          <div>
+            <button type="button" onClick={onConfirmComputerUse}>
+              Confirm
+            </button>
+            <button type="button" onClick={onCancelComputerUse}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="field-grid">
         <label>
           <span>Worker URL</span>
@@ -125,7 +113,17 @@ export function SettingsPanel({
         </label>
         <label>
           <span>Shortcut</span>
-          <input value={settings.shortcut} onChange={(event) => set("shortcut", event.target.value)} />
+          <input
+            value={settings.shortcut}
+            readOnly
+            aria-label="Clicky global shortcut"
+            title="Focus, then press the shortcut keys together"
+            onKeyDown={(event) => {
+              event.preventDefault();
+              const shortcut = shortcutFromKeyboardEvent(event.nativeEvent);
+              if (shortcut) set("shortcut", shortcut);
+            }}
+          />
         </label>
       </div>
 

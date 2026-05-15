@@ -778,6 +778,122 @@ describe("Clicky Worker", () => {
     }
   });
 
+  it("asks the app to confirm Gemini computer_use before touching the desktop", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchEvents: string[] = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://opencode.ai/zen/v1/models/gemini-3-flash:streamGenerateContent")) {
+        fetchEvents.push("gemini");
+        expect(String(init?.body || "")).toContain("computer_use");
+        return new Response(
+          'data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"computer_use","args":{"task":"open Chrome and go to google.com"}}}]}}]}\n\n',
+          { status: 200, headers: { "content-type": "text/event-stream" } }
+        );
+      }
+
+      if (url.startsWith("http://127.0.0.1:8000")) fetchEvents.push("cua");
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      const response = await handleRequest(
+        new Request("http://worker.local/chat", {
+          method: "POST",
+          headers: {
+            Origin: "http://127.0.0.1:5174",
+            "Content-Type": "application/json",
+            "cf-connecting-ip": "gemini-computer-confirm-test"
+          },
+          body: JSON.stringify({
+            provider: "opencode",
+            model: "gemini-3-flash",
+            responseMode: "quick",
+            computerUseEnabled: true,
+            transcript: "open Chrome and go to google.com"
+          })
+        }),
+        { ...env, MOCK_MODE: "false", OPENCODE_API_KEY: "test-key", OPENCODE_MODEL: "" }
+      );
+
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(text).toContain("computer_use_confirmation");
+      expect(text).toContain("open Chrome and go to google.com");
+      expect(fetchEvents).toEqual(["gemini"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("executes a confirmed computer_use task through the local Cua server", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchEvents: string[] = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://opencode.ai/zen/v1/models/gemini-3-flash:streamGenerateContent")) {
+        fetchEvents.push("gemini");
+        return new Response(
+          'data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"computer_use","args":{"task":"open Chrome and go to google.com"}}}]}}]}\n\n',
+          { status: 200, headers: { "content-type": "text/event-stream" } }
+        );
+      }
+
+      if (url === "http://127.0.0.1:8000/status") {
+        fetchEvents.push("cua-status");
+        return new Response(JSON.stringify({ status: "ok", os_type: "windows", features: ["agent"] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      if (url === "http://127.0.0.1:8000/cmd") {
+        fetchEvents.push(`cua-cmd:${String(init?.body || "")}`);
+        return new Response('data: {"success":true,"result":{"opened":"https://www.google.com"}}\n\n', {
+          status: 200,
+          headers: { "content-type": "text/plain; charset=utf-8" }
+        });
+      }
+
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      const response = await handleRequest(
+        new Request("http://worker.local/chat", {
+          method: "POST",
+          headers: {
+            Origin: "http://127.0.0.1:5174",
+            "Content-Type": "application/json",
+            "cf-connecting-ip": "gemini-computer-execute-test"
+          },
+          body: JSON.stringify({
+            provider: "opencode",
+            model: "gemini-3-flash",
+            responseMode: "quick",
+            computerUseEnabled: true,
+            computerUseConfirmed: true,
+            confirmedComputerTask: "open Chrome and go to google.com",
+            transcript: "yes"
+          })
+        }),
+        { ...env, MOCK_MODE: "false", OPENCODE_API_KEY: "test-key", OPENCODE_MODEL: "" }
+      );
+
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(text).toContain("action_status");
+      expect(text).toContain("done, google.com is open");
+      expect(fetchEvents[0]).toBe("gemini");
+      expect(fetchEvents).toContain("cua-status");
+      expect(fetchEvents.some((event) => event.includes("\"command\":\"open\""))).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("uses the resolved OpenCode model when deciding whether screenshots are allowed", async () => {
     const originalFetch = globalThis.fetch;
     let upstreamBody = "";
@@ -992,6 +1108,72 @@ describe("Clicky Worker", () => {
       const search = payload.tools.find((tool) => tool.type === "search");
       expect(search?.status).toBe("ok");
       expect(search?.summary).toContain("IPL match schedule today");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("adds today's date to search queries and ranks recent page excerpts first", async () => {
+    const originalFetch = globalThis.fetch;
+    const searchQueries: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://api.duckduckgo.com/")) {
+        searchQueries.push(new URL(url).searchParams.get("q") || "");
+        return new Response(JSON.stringify({ Heading: "", Answer: "", AbstractText: "" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      if (url.startsWith("https://html.duckduckgo.com/html/")) {
+        searchQueries.push(new URL(url).searchParams.get("q") || "");
+        return new Response(
+          '<html><body><a class="result__a" href="https://example.com/old">Old product result</a><a class="result__snippet">Older launch coverage.</a><a class="result__a" href="https://example.com/new">Fresh product result</a><a class="result__snippet">Fresh launch coverage.</a></body></html>',
+          { status: 200, headers: { "content-type": "text/html" } }
+        );
+      }
+
+      if (url === "https://example.com/old") {
+        return new Response("<html><time datetime=\"2024-01-01T00:00:00Z\"></time>Old details.</html>", {
+          status: 200,
+          headers: { "content-type": "text/html", "last-modified": "Mon, 01 Jan 2024 00:00:00 GMT" }
+        });
+      }
+
+      if (url === "https://example.com/new") {
+        return new Response("<html><time datetime=\"2026-05-15T08:00:00Z\"></time>Fresh details.</html>", {
+          status: 200,
+          headers: { "content-type": "text/html", "last-modified": "Fri, 15 May 2026 08:00:00 GMT" }
+        });
+      }
+
+      if (url.startsWith("https://news.google.com/rss/search")) {
+        searchQueries.push(new URL(url).searchParams.get("q") || "");
+        return new Response("<rss><channel></channel></rss>", { status: 200, headers: { "content-type": "application/xml" } });
+      }
+
+      return originalFetch(input);
+    }) as typeof fetch;
+
+    try {
+      const response = await handleRequest(
+        new Request("http://worker.local/tools/resolve", {
+          method: "POST",
+          headers: {
+            Origin: "http://127.0.0.1:5174",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ transcript: "latest product launch" })
+        }),
+        env
+      );
+
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as { tools: Array<{ type: string; status: string; summary?: string }> };
+      expect(searchQueries.every((query) => query.includes("May 15, 2026"))).toBe(true);
+      expect(payload.tools[0].summary).toContain("Fresh product result");
+      expect(payload.tools[0].summary?.indexOf("Fresh product result")).toBeLessThan(payload.tools[0].summary?.indexOf("Old product result") || Infinity);
     } finally {
       globalThis.fetch = originalFetch;
     }

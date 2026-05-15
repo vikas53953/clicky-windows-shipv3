@@ -3,6 +3,7 @@ import { normalizeChatCompletionsStream, normalizeOpenAiStream } from "../utils/
 import { maxOutputTokensFor, normalizedConversationMessages, screenshotLabel, supportsImageInput, systemPromptFor } from "../utils/text";
 import { trimTrailingSlash } from "../utils/http";
 import { buildOpenAiInput } from "./openai";
+import { executeComputerUseTask, isConfirmedComputerTask } from "../tools/computer";
 import { resolveSearchTool } from "../tools/search";
 import { resolveTimeTool, timezoneHint } from "../tools/time";
 import { resolveWeatherTools } from "../tools/weather";
@@ -118,7 +119,7 @@ function buildGeminiRequest(
       parts: [{ text: geminiSystemPromptFor(body) }]
     },
     contents,
-    ...(includeTools ? { tools: geminiToolDeclarations(), toolConfig: geminiToolConfig(toolMode) } : {}),
+    ...(includeTools ? { tools: geminiToolDeclarations(body), toolConfig: geminiToolConfig(toolMode) } : {}),
     generationConfig: {
       maxOutputTokens: Math.max(maxOutputTokensFor(body), 512),
       thinkingConfig: {
@@ -194,6 +195,10 @@ function thinkingLevelFor(_body: ChatRequest): "minimal" {
 }
 
 function geminiSystemPromptFor(body: ChatRequest): string {
+  const computerUseInstruction = body.computerUseEnabled
+    ? "\n- when the user asks you to control the desktop, call computer_use with the full task. the worker will pause for user confirmation before executing it, so do not answer as if you completed the action yourself."
+    : "";
+
   return `${systemPromptFor(body)}
 
 tool use:
@@ -201,6 +206,7 @@ tool use:
 - for those current facts, call the right tool first. do not answer current facts from memory.
 - after a tool result, base current facts only on the tool result. if the tool result is incomplete, say what it found instead of filling gaps from older memory.
 - do not use web_search for stable knowledge, simple math, casual greetings, or visible-screen questions unless the user asks for current outside information too.
+- computer_use is available only when declared in this request.${computerUseInstruction}
 - after a tool result, answer naturally in clicky's voice and append one [POINT] tag.`;
 }
 
@@ -212,10 +218,8 @@ function geminiToolConfig(mode: "AUTO" | "NONE"): unknown {
   };
 }
 
-function geminiToolDeclarations(): unknown[] {
-  return [
-    {
-      functionDeclarations: [
+function geminiToolDeclarations(body: ChatRequest): unknown[] {
+  const functionDeclarations: unknown[] = [
         {
           name: "web_search",
           description:
@@ -248,7 +252,29 @@ function geminiToolDeclarations(): unknown[] {
             required: ["location"]
           }
         }
-      ]
+  ];
+
+  if (body.computerUseEnabled) {
+    functionDeclarations.push({
+      name: "computer_use",
+      description:
+        "Control the user's computer to complete tasks after explicit user confirmation. Use this when the user asks you to open apps, click things, type text, navigate websites, fill forms, or perform a multi-step desktop workflow.",
+      parameters: {
+        type: "object",
+        properties: {
+          task: {
+            type: "string",
+            description: "The full task to accomplish, e.g. open Chrome, go to x.com, and post a tweet saying hello."
+          }
+        },
+        required: ["task"]
+      }
+    });
+  }
+
+  return [
+    {
+      functionDeclarations
     }
   ];
 }
@@ -303,6 +329,32 @@ function streamGeminiWithTools(
       const first = await forwardGeminiStream(stream, writer, false);
       console.info(`[clicky-gemini] first_pass_ms=${Date.now() - startedAt} tool_calls=${first.functionCallParts.length}`);
       if (first.functionCallParts.length) {
+        const computerUsePart = first.functionCallParts.find((part) => part.functionCall.name === "computer_use");
+        if (computerUsePart) {
+          const task = stringArg(computerUsePart.functionCall.args, "task") || body.transcript || "";
+          if (!body.computerUseEnabled) {
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "chunk", text: "computer control is turned off. enable tools first, then ask again. [POINT:none]" })}\n\n`));
+            await writer.write(encoder.encode("data: [DONE]\n\n"));
+            return;
+          }
+
+          if (!body.computerUseConfirmed || !isConfirmedComputerTask(task, body.confirmedComputerTask)) {
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "action_status", text: `Waiting for confirmation: ${task}` })}\n\n`));
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "computer_use_confirmation", task })}\n\n`));
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "chunk", text: `i can do that after you confirm: ${task}. [POINT:none]` })}\n\n`));
+            await writer.write(encoder.encode("data: [DONE]\n\n"));
+            return;
+          }
+
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "action_status", text: "Connecting to local Cua computer server..." })}\n\n`));
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "action_status", text: `Running: ${task}` })}\n\n`));
+          const result = await executeComputerUseTask(task, env);
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "action_status", text: result.summary })}\n\n`));
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "chunk", text: cleanGeminiSpeech(result.speech) })}\n\n`));
+          await writer.write(encoder.encode("data: [DONE]\n\n"));
+          return;
+        }
+
         const toolResults = await executeGeminiFunctionCalls(
           first.functionCallParts.map((part) => part.functionCall),
           body,

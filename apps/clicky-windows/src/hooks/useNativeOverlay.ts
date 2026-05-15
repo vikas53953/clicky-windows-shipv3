@@ -118,6 +118,7 @@ export function useNativeOverlay({
     void listenNativeEvent<NativeCursorContext>("clicky-cursor-moved", (context) => {
       setNativeCursor(context);
       setCursor({ x: context.x, y: context.y });
+      setNativeDiagnostics((diagnostics) => (diagnostics ? { ...diagnostics, cursor: context, cursorFollowing: true } : diagnostics));
     }).then((unlisten) => unlistenCallbacks.push(unlisten));
 
     void listenNativeEvent<NativeOverlayState>("clicky-overlay-state", (state) => {
@@ -143,6 +144,27 @@ export function useNativeOverlay({
 
     refreshCursor();
     const timer = window.setInterval(refreshCursor, 100);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [nativeRuntime]);
+
+  useEffect(() => {
+    if (!nativeRuntime) return;
+
+    let cancelled = false;
+    const refreshDiagnostics = () => {
+      void getOverlayDiagnostics().then((diagnostics) => {
+        if (cancelled || !diagnostics) return;
+        setNativeDiagnostics(diagnostics);
+        setNativeCursor(diagnostics.cursor);
+        setCursor({ x: diagnostics.cursor.x, y: diagnostics.cursor.y });
+      });
+    };
+
+    refreshDiagnostics();
+    const timer = window.setInterval(refreshDiagnostics, 1000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);

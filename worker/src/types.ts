@@ -15,6 +15,10 @@ export interface WorkerEnv {
   MOCK_MODE?: string;
   DEFAULT_WEATHER_LOCATION?: string;
   DEFAULT_TIMEZONE?: string;
+  CUA_COMPUTER_SERVER_URL?: string;
+  CUA_AGENT_MODEL?: string;
+  CUA_AGENT_API_KEY?: string;
+  CUA_AGENT_API_BASE?: string;
 }
 
 export interface ChatRequest {
@@ -22,6 +26,8 @@ export interface ChatRequest {
   model?: string;
   responseMode?: "quick" | "screen_guidance" | string;
   computerUseEnabled?: boolean;
+  computerUseConfirmed?: boolean;
+  confirmedComputerTask?: string;
   timezone?: string;
   provider?: "anthropic" | "openai" | "opencode" | string;
   messages?: ConversationMessage[];

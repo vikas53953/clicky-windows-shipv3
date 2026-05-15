@@ -59,7 +59,8 @@ export default function App() {
     isOverlayWindow,
     sessionStatusRef,
     startListening: liveFlow.startListening,
-    stopListening: liveFlow.stopListening
+    stopListening: liveFlow.stopListening,
+    toggleListening: liveFlow.toggleListening
   });
 
   if (isOverlayWindow) {
@@ -85,12 +86,13 @@ export default function App() {
         settings={settings}
         onSettingsChange={setSettings}
         onToggleListening={liveFlow.toggleListening}
-        onStartListening={liveFlow.startListening}
-        onStopListening={liveFlow.stopListening}
         onTestWorker={liveFlow.handleTestWorker}
         onTestVoice={liveFlow.handleTestVoice}
         onProbeMic={liveFlow.handleProbeMic}
         onClear={liveFlow.clearConversation}
+        pendingComputerTask={liveFlow.pendingComputerTask}
+        onConfirmComputerUse={liveFlow.confirmComputerUse}
+        onCancelComputerUse={liveFlow.cancelComputerUse}
         listening={session.status === "listening"}
         nativeSummary={nativeStatus.runtime}
         micStatus={voice.micStatus}

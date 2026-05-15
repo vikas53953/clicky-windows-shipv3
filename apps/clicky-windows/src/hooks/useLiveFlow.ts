@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { cancelSpeechPlayback, playAudioBlob, speakTextLocally } from "../services/audioPlayback";
 import type { ClickySession, ClickySessionEvent } from "../services/clickySession";
 import { executeDesktopToolCalls, parseDesktopToolBlocks } from "../services/desktopTools";
@@ -142,11 +142,15 @@ export function useLiveFlow({
   handleTestWorker: () => Promise<void>;
   handleTestVoice: () => Promise<void>;
   handleProbeMic: () => Promise<void>;
+  pendingComputerTask: string | null;
+  confirmComputerUse: () => void;
+  cancelComputerUse: () => void;
 } {
   const timers = useRef<number[]>([]);
   const liveFlowTurnRef = useRef<number | null>(null);
   const activeTurnRef = useRef(0);
   const activeAbortRef = useRef<AbortController | null>(null);
+  const [pendingComputerTask, setPendingComputerTask] = useState<string | null>(null);
 
   const beginNewTurn = useCallback(() => {
     activeAbortRef.current?.abort();
@@ -187,7 +191,7 @@ export function useLiveFlow({
         .then((controller) => {
           voiceCaptureRef.current = controller;
           startVoiceMeter(controller, () => stopListeningRef.current());
-          setMicStatus("Recording microphone. Hold while speaking; Clicky will send when you release or pause.");
+          setMicStatus("Recording microphone. Press the shortcut again to send.");
         })
         .catch((error) => {
           voiceCaptureStartRef.current = null;
@@ -234,6 +238,57 @@ export function useLiveFlow({
       window.setTimeout(() => dispatch({ type: "pointingFinished" }), 4300)
     );
   }, [clearVoiceMeter, dispatch, publishOverlayState, settings.showClicky]);
+
+  const runConfirmedComputerTask = useCallback(
+    async (task: string) => {
+      const { turnId, signal } = beginNewTurn();
+      const current = () => isActiveTurn(turnId, signal);
+      setPendingComputerTask(null);
+      dispatch({ type: "pressToTalkEnded", transcript: "yes" });
+      dispatch({ type: "transcriptReady" });
+      dispatch({ type: "screenCaptured" });
+      publishOverlayState({ status: "thinking", text: `Confirming computer action: ${task}`, visible: settings.showClicky });
+      setWorkerStatus(`Confirmed computer action: ${task}`);
+
+      try {
+        const responseText = await streamChatResponse(
+          settings,
+          {
+            transcript: task,
+            screenshots: [],
+            quickResponse: true,
+            messages: conversationMessagesRef.current,
+            computerUseConfirmed: true,
+            confirmedComputerTask: task
+          },
+          (chunk) => {
+            if (current()) dispatch({ type: "assistantChunk", chunk });
+          },
+          signal,
+          (event) => {
+            if (!current()) return;
+            if (event.type === "action_status") {
+              setWorkerStatus(event.text);
+              publishOverlayState({ status: "thinking", text: event.text, visible: settings.showClicky });
+            }
+          }
+        );
+        if (!current()) return;
+        const confirmedMessages: ConversationMessage[] = [
+          { role: "user", content: `confirmed computer task: ${task}` },
+          { role: "assistant", content: cleanAssistantMemoryText(responseText) || responseText }
+        ];
+        setConversationMessages((currentMessages) => [...currentMessages, ...confirmedMessages].slice(-20));
+        dispatch({ type: "speechFinished" });
+      } catch (error) {
+        if (signal.aborted || !current()) return;
+        const message = error instanceof Error ? error.message : "Computer use failed.";
+        setWorkerStatus(message);
+        dispatch({ type: "failed", message });
+      }
+    },
+    [beginNewTurn, conversationMessagesRef, dispatch, isActiveTurn, publishOverlayState, setConversationMessages, setWorkerStatus, settings]
+  );
 
   const runLiveResponse = useCallback(async () => {
     const turnId = activeTurnRef.current;
@@ -301,6 +356,20 @@ export function useLiveFlow({
 
       if (!transcript) {
         throw new Error("I recorded audio, but could not detect speech. Please try again closer to the microphone.");
+      }
+
+      if (pendingComputerTask && /\b(yes|confirm|confirmed|go ahead|do it|continue|proceed)\b/i.test(transcript)) {
+        safeSetMicStatus(`Confirmed: "${transcript}"`);
+        await runConfirmedComputerTask(pendingComputerTask);
+        return;
+      }
+
+      if (pendingComputerTask && /\b(no|stop|cancel|abort|never mind|nevermind)\b/i.test(transcript)) {
+        setPendingComputerTask(null);
+        safeSetMicStatus(`Cancelled: "${transcript}"`);
+        safeSetWorkerStatus("Computer action cancelled.");
+        publishOverlayState({ status: "idle", text: "cancelled.", visible: settings.showClicky });
+        return;
       }
 
       safeSetMicStatus(
@@ -382,7 +451,22 @@ export function useLiveFlow({
           safeDispatch({ type: "assistantChunk", chunk });
           speechQueue?.push(chunk);
         },
-        signal
+        signal,
+        (event) => {
+          if (!current()) return;
+          if (event.type === "action_status") {
+            safeSetWorkerStatus(event.text);
+            publishOverlayState({ status: "thinking", text: event.text, visible: settings.showClicky });
+          }
+          if (event.type === "computer_use_confirmation") {
+            setPendingComputerTask(event.task);
+            publishOverlayState({
+              status: "thinking",
+              text: `confirm this action: ${event.task}`,
+              visible: settings.showClicky
+            });
+          }
+        }
       );
       if (!current()) return;
       timing.chatTotalMs = msSince(chatStartedAt);
@@ -447,6 +531,8 @@ export function useLiveFlow({
     dispatch,
     isActiveTurn,
     publishOverlayState,
+    pendingComputerTask,
+    runConfirmedComputerTask,
     setConversationMessages,
     setMicStatus,
     setWorkerStatus,
@@ -472,7 +558,7 @@ export function useLiveFlow({
     if (sessionStatusRef.current === "listening") {
       stopListening();
     } else {
-      startListening();
+      startListening({ autoStopOnSilence: false });
     }
   }, [sessionStatusRef, startListening, stopListening]);
 
@@ -538,8 +624,21 @@ export function useLiveFlow({
     clearTimers();
     clearVoiceMeter();
     setConversationMessages([]);
+    setPendingComputerTask(null);
     dispatch({ type: "clearConversation" });
   }, [clearTimers, clearVoiceMeter, dispatch, setConversationMessages]);
+
+  const confirmComputerUse = useCallback(() => {
+    if (!pendingComputerTask) return;
+    void runConfirmedComputerTask(pendingComputerTask);
+  }, [pendingComputerTask, runConfirmedComputerTask]);
+
+  const cancelComputerUse = useCallback(() => {
+    activeAbortRef.current?.abort();
+    setPendingComputerTask(null);
+    setWorkerStatus("Computer action cancelled.");
+    publishOverlayState({ status: "idle", text: "cancelled.", visible: settings.showClicky });
+  }, [publishOverlayState, setWorkerStatus, settings.showClicky]);
 
   return {
     startListening,
@@ -548,6 +647,9 @@ export function useLiveFlow({
     clearConversation,
     handleTestWorker,
     handleTestVoice,
-    handleProbeMic
+    handleProbeMic,
+    pendingComputerTask,
+    confirmComputerUse,
+    cancelComputerUse
   };
 }

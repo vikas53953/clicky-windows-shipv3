@@ -11,10 +11,10 @@ try {
   await page.goto(smokeUrl, { waitUntil: "load" });
   await page.getByText("Phase 2 native shell").waitFor({ timeout: 5000 });
 
-  await holdClickyShortcut(page);
+  await pressClickyShortcut(page);
   await page.getByText("Listening", { exact: true }).waitFor({ timeout: 5000 });
 
-  await releaseClickyShortcut(page);
+  await pressClickyShortcut(page);
   await page.getByText(/try asking about something visible on your screen/i).first().waitFor({ timeout: 9000 });
   await page.getByText("Ready to listen", { exact: true }).waitFor({ timeout: 9000 });
 
@@ -29,13 +29,10 @@ try {
   await browser.close();
 }
 
-async function holdClickyShortcut(page) {
+async function pressClickyShortcut(page) {
   await page.keyboard.down("Control");
   await page.keyboard.down("Alt");
   await page.keyboard.down("Space");
-}
-
-async function releaseClickyShortcut(page) {
   await page.keyboard.up("Space");
   await page.keyboard.up("Alt");
   await page.keyboard.up("Control");

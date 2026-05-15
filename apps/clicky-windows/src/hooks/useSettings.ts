@@ -1,5 +1,5 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import { isLiveSessionRequested, isTauriRuntime } from "../services/nativeBridge";
+import { isLiveSessionRequested, isTauriRuntime, listenNativeEvent, type NativeAccentColorEvent } from "../services/nativeBridge";
 import { migrateStoredSettings } from "../services/settingsMigration";
 import { defaultSettings, type ClickySettings } from "../services/workerClient";
 
@@ -72,6 +72,21 @@ export function useSettings({ forceMockMode, isOverlayWindow, onWorkerStatus }: 
       cancelled = true;
     };
   }, [forceMockMode, isOverlayWindow, nativeRuntime, onWorkerStatus]);
+
+  useEffect(() => {
+    if (!nativeRuntime) return;
+
+    let unlistenAccent: (() => void) | null = null;
+    void listenNativeEvent<NativeAccentColorEvent>("clicky-accent-color", (event) => {
+      setSettings((current) => ({ ...current, accentColor: event.color }));
+    }).then((unlisten) => {
+      unlistenAccent = unlisten;
+    });
+
+    return () => {
+      unlistenAccent?.();
+    };
+  }, [nativeRuntime]);
 
   useEffect(() => {
     if (isOverlayWindow) return;
